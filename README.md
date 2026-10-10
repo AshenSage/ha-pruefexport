@@ -4,7 +4,7 @@ Lokale Home-Assistant-Integration für ein dokumentiertes Prüfarchiv aus Konfig
 Dashboards und Laufzeitdaten. Das ZIP wird auf dem HA-System erstellt und kann über
 eine authentifizierte Administrator-Sitzung heruntergeladen werden.
 
-Version **1.0.6** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
+Version **1.0.7** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
 Python-Abhängigkeiten für die Integration.
 
 ## Installation mit HACS
@@ -48,12 +48,17 @@ Als HA-Administrator die Aktion `ha_pruefexport.export` ausführen:
 
 ```yaml
 action: ha_pruefexport.export
-data:
-  pruefmodus: methode
 ```
 
-- `methode`: Prüfauftrag nur für Exportmethode, Umfang und Maskierung; Standardwert.
-- `gesamt`: Prüfauftrag für eine systematische Konfigurations- und Dashboardprüfung.
+Jedes neue ZIP enthält denselben modellagnostischen Gesamtprüfauftrag in
+`PRUEFAUFTRAG.md`: Exportgrundlage und Exporter auf Lücken, Maskierung und
+Verbesserungsbedarf prüfen, danach Home Assistant samt allen exportierten
+Dashboardkacheln systematisch prüfen und konkrete Änderungen liefern.
+Dateiliste, Inventar, Abhängigkeiten, Exportbericht und `KONTEXT.md` begleiten den Auftrag.
+Es gibt keine Modusauswahl mehr. Bestehende Karten mit dem früheren Parameter
+`pruefmodus: methode` oder `pruefmodus: gesamt` bleiben nutzbar und erzeugen ebenfalls
+den gemeinsamen Gesamtprüfauftrag. Bereits erstellte ZIPs behalten ihren alten Auftrag;
+nach dem Update ein neues Archiv erstellen.
 
 Die Aktion startet den Export im Hintergrund. Der Sensor zeigt Fortschritt, letzten
 Erfolg, Umfang und bereinigte Fehlerdetails. Ein vorheriges fertiges ZIP bleibt auch

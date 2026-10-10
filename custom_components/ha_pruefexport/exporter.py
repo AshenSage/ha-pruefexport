@@ -273,11 +273,12 @@ class ExportFailure(ValueError):
 
 
 class Builder:
-    def __init__(self, root, private, snapshot, mode, cancel=None, limits=None, progress=None):
+    def __init__(self, root, private, snapshot, mode="gesamt", cancel=None, limits=None, progress=None):
         self.root = Path(root).resolve()
         self.private = Path(private)
         self.snapshot = snapshot
-        self.mode = mode
+        # Old callers may still pass "methode"; every new archive is a full audit.
+        self.mode = "gesamt"
         self.cancel = cancel or threading.Event()
         self.max_file, self.max_total, self.max_entries = limits or (MAX_FILE, MAX_TOTAL, MAX_ENTRIES)
         self.redactor = Redactor()
@@ -601,10 +602,51 @@ class Builder:
         if context_path.as_posix().startswith(self.root.as_posix()) and "ha_pruefexport_kontext.md" in self.contents:
             context += "\n## Zusätzlich gepflegter Kontext\n\n" + self.redactor.text(self.contents["ha_pruefexport_kontext.md"][0])
         self.add("KONTEXT.md", context.encode())
-        if self.mode == "methode":
-            task = "# Prüfauftrag: nur Exportmethode\n\nPrüfe ausschliesslich die Exportmethode, Vollständigkeit und Maskierung dieses Archivs.\nKeine fachliche Prüfung oder Optimierung der HA-Konfiguration, Templates, Automationen oder Karten.\nBeginne mit EXPORTBERICHT.md, manifest.json und inventar/dateien.json.\nVergleiche Archivinhalt, SHA256/Grössen, Dateiliste, Einbindungen, Live-Dashboards, Runtime und registrierte Erweiterungen.\nSuche nach ausgelassenen prüfrelevanten Daten, Maskierungsfehlern und falschen Vollständigkeitsbehauptungen.\nBeachte ausdrücklich nicht inventarisierte Unterbäume und Grenzen externer Apps.\nVerbessere bei Bedarf den Exporter; verwende keine Geräteaktionen und behaupte keinen Live-Test.\n"
-        else:
-            task = "# Prüfauftrag: gesamte HA-Prüfung\n\nPrüfe dieses Home-Assistant-Archiv systematisch anhand des aktuellen exportierten Stands.\nBeginne mit Bericht, Manifest und Inventar; erstelle eine Ansicht-/Karten-/Abhängigkeitsübersicht und einen Prüfplan.\nPrüfe Dashboard, Konfiguration, Templates, Automationen, Skripte und Erweiterungen auf Datenlücken,\nEinheiten, Zeitstempel, konfigurierte HA-Zeitzone/DST, Forecastbezug, Verfügbarkeit, Navigation und Aktionsparameter.\nSimuliere sinnvolle Fehlerfälle lokal; verwende ausschliesslich nachgewiesene Entitäten/Attribute.\nUnterscheide echte Nullwerte von fehlenden Daten, Quellenfrische von HA last_reported/last_changed.\nBeachte KONTEXT.md und dokumentiere Exportlücken. Bereits bearbeitete Karten auf aktuellem Stand prüfen.\nNutze offizielle Quellen passend zu den exportierten Versionen. Kein behaupteter Live-Test, keine Geräteaktionen/SMS.\nLiefere bei notwendigen Änderungen komplette herunterladbare Ersatz-YAML je Kartenblock mit Ersetzungsanweisung.\nKonfiguration/Automationen nur bei nachgewiesenem Bedarf ändern.\n"
+        task = """# Prüfauftrag: gesamte Home-Assistant-Prüfung
+
+Prüfe dieses Archiv systematisch anhand des aktuellen exportierten Stands.
+Hauptziel: Jede Dashboardkachel soll korrekt anzeigen, sinnvoll bedienbar sein und
+auch bei fehlenden oder veralteten Daten zuverlässig reagieren.
+Der Auftrag ist modellagnostisch. Beachte KONTEXT.md und den tatsächlich erfassten Umfang.
+
+## 1. Exportgrundlage und Exporter prüfen
+
+Beginne mit EXPORTBERICHT.md, manifest.json, inventar/dateiliste.txt,
+inventar/dateien.json und inventar/abhaengigkeiten.json.
+Vergleiche Archivinhalt, SHA256/Grössen, Dateiliste, Einbindungen, Live-Dashboards,
+Laufzeitdaten und registrierte Integrationen. Suche nach ausgelassenen prüfrelevanten
+Daten, unbekannten Speicherformaten, Maskierungsfehlern und falschen
+Vollständigkeitsbehauptungen. Beachte nicht inventarisierte Unterbäume, Limits und
+Grenzen externer Apps. Unbekannte Quellen bleiben ungeklärt; fehlende Inhalte nicht erfinden.
+Prüfe den enthaltenen Quellcode unter erweiterungen/custom_components/ha_pruefexport/,
+soweit vorhanden, auf Fehler und Verbesserungsbedarf. Benenne nötige Anpassungen an
+Erfassung, Maskierung, Kompatibilität oder Bedienung und begründe sie mit dem Archivstand.
+Bei fehlenden relevanten Quellen liefere die mögliche Teilprüfung trotzdem und
+benenne genau, was für eine weitergehende Prüfung nachgeliefert werden muss.
+
+## 2. Home Assistant und jede Dashboardkachel prüfen
+
+Erstelle eine Ansicht-/Karten-/Abhängigkeitsübersicht und einen Prüfplan.
+Gehe alle exportierten Ansichten und Kacheln durch; eine allgemeine Checkliste genügt nicht.
+Prüfe Konfiguration, Templates, Automationen, Skripte und Erweiterungen auf Fehler,
+Datenlücken, Einheiten, Zeitstempel, konfigurierte HA-Zeitzone/DST, Forecastbezug,
+Verfügbarkeit, Navigation und Aktionsparameter. Bereits bearbeitete Karten auf ihrem
+aktuellen Stand prüfen. Verwende ausschliesslich nachgewiesene Entitäten und Attribute.
+Unterscheide echte Nullwerte von fehlenden Daten und Quellenfrische von HA
+last_reported/last_changed. Simuliere sinnvolle Fehlerfälle lokal.
+Nutze offizielle Quellen passend zu den exportierten Versionen.
+
+## 3. Konkrete Ergebnisse und Änderungen liefern
+
+Priorisiere nachgewiesene Fehler und sinnvolle Verbesserungen. Trenne belegte Befunde
+von Annahmen und dokumentiere die verbleibenden Exportlücken.
+Liefere bei notwendigen Kartenänderungen komplette herunterladbare Ersatz-YAML je
+Kartenblock mit Ersetzungsanweisung. Konfiguration und Automationen nur bei
+nachgewiesenem Bedarf ändern. Für nötige Exporter-Anpassungen liefere konkrete
+Codeänderungen mit passenden Prüfungen und Update-Anweisungen.
+Beschreibe durchgeführte Prüfungen und die noch nötigen Prüfungen auf dem laufenden HA.
+Behaupte keinen Live-Test ohne tatsächlichen Zugriff; keine Geräteaktionen oder SMS.
+"""
         self.add("PRUEFAUFTRAG.md", task.encode())
         self.report("Abschliessende Maskierung", 73, 0, len(self.payload), "Dateien")
         # Sources can teach additional literals during rendering. Apply the completed
@@ -703,7 +745,7 @@ class Builder:
                 "issues": len(self.issues), "maskierungen": self.redactor.count, "mode": self.mode}
 
 
-def create_export(root, private, snapshot, mode, cancel=None, progress=None):
+def create_export(root, private, snapshot, mode="gesamt", cancel=None, progress=None):
     builder = Builder(root, private, snapshot, mode, cancel, progress=progress)
     try:
         return builder.build()

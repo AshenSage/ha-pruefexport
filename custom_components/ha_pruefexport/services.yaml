@@ -1,15 +1,3 @@
 export:
   name: Prüfexport erstellen
-  description: Erstellt im Hintergrund ein lokales Diagnose-ZIP. Nur für Administratoren.
-  fields:
-    pruefmodus:
-      name: Prüfauftrag
-      description: Zuerst die Exportmethode prüfen; später die gesamte HA-Konfiguration.
-      default: methode
-      selector:
-        select:
-          options:
-            - label: Nur Exportmethode prüfen
-              value: methode
-            - label: Gesamte HA-Prüfung
-              value: gesamt
+  description: Erstellt im Hintergrund ein lokales Prüf-ZIP mit einem gemeinsamen KI-Auftrag für Home Assistant, Dashboards und den Exporter. Nur für Administratoren.

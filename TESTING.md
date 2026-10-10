@@ -17,7 +17,11 @@ Administratorprüfung, Downloadpfade, Fehlerdiagnosen und die tatsächliche Kart
 Die Prüfung führt keine Geräteaktionen aus und benötigt keine HA-Zugangsdaten.
 Die Test-Zugangsdaten in den Fixtures sind absichtlich erfundene Werte.
 
-Version 1.0.6: 60 lokale Tests und die Syntax-/Kartenprüfung bestehen.
+Version 1.0.7: 61 lokale Tests und die Syntax-/Kartenprüfung bestehen.
+Der parameterlose Kartenaufruf und frühere Modusparameter werden mit beiden
+Schema-Engines geprüft. Echte ZIPs aus dem Standardaufruf und einem früheren
+`methode`-Aufruf enthalten denselben kombinierten Prüfauftrag; Archivmetadaten und
+Managerstatus melden jeweils `gesamt`.
 Zusätzlich geprüft: Bearbeitungszähler und Phasen vor Archivfreigabe, gedrosselte
 Fortschrittsmeldungen, langsame HA-Abrufe mit Statusmeldungen ohne erfundenen Fortschritt,
 Entity-Benachrichtigungen ausschliesslich auf dem Eventloop, doppelte Startaufrufe,

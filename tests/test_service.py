@@ -47,21 +47,23 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(engine=engine.__name__):
                 reg, manager, hass = await self.registered(engine)
                 self.assertEqual(action["service"], reg["domain"] + "." + reg["action"])
-                data = reg["schema"](action["service_data"])
+                data = reg["schema"](action.get("service_data", {}))
                 await reg["handler"](types.SimpleNamespace(data=data))
-                manager.start.assert_called_once_with("methode")
+                manager.start.assert_called_once_with()
 
-    async def test_omitted_mode_defaults_to_method(self):
+    async def test_omitted_mode_starts_shared_audit(self):
         for engine in (voluptuous, probatio):
             reg, manager, hass = await self.registered(engine)
             await reg["handler"](types.SimpleNamespace(data=reg["schema"]({})))
-            manager.start.assert_called_once_with("methode")
+            manager.start.assert_called_once_with()
 
-    async def test_entire_audit_mode_reaches_manager(self):
+    async def test_legacy_card_parameters_start_shared_audit(self):
         for engine in (voluptuous, probatio):
-            reg, manager, hass = await self.registered(engine)
-            await reg["handler"](types.SimpleNamespace(data=reg["schema"]({"pruefmodus": "gesamt"})))
-            manager.start.assert_called_once_with("gesamt")
+            for old_mode in ("methode", "gesamt"):
+                with self.subTest(engine=engine.__name__, mode=old_mode):
+                    reg, manager, hass = await self.registered(engine)
+                    await reg["handler"](types.SimpleNamespace(data=reg["schema"]({"pruefmodus": old_mode})))
+                    manager.start.assert_called_once_with()
 
     async def test_invalid_values_rejected_before_manager(self):
         for engine in (voluptuous, probatio):

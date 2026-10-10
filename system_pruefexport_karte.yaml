@@ -149,8 +149,6 @@ cards:
               return entity && entity.attributes?.running !== true && ['bereit','vollstaendig','teilweise','fehler'].includes(entity.state) && hass.user?.is_admin === true ? 'call-service' : 'none';
             ]]]
           service: ha_pruefexport.export
-          service_data:
-            pruefmodus: methode
         hold_action:
           action: none
         double_tap_action:

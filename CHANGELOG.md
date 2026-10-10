@@ -1,5 +1,17 @@
 # Änderungen
 
+## 1.0.7
+
+- Ein gemeinsamer modellagnostischer Prüfauftrag für Exportgrundlage, Exporter,
+  Home Assistant und sämtliche exportierten Dashboardkacheln.
+- Modusauswahl aus Aktion und Beispielkarte entfernt. Ein Aufruf ohne Parameter
+  genügt; bestehende Karten mit dem alten Modusparameter erzeugen ebenfalls
+  den gemeinsamen Gesamtprüfauftrag.
+- Der Auftrag nennt Dateiliste, Abhängigkeiten, Exportgrenzen und enthaltenen
+  Exporter-Code ausdrücklich und verlangt konkrete Änderungen samt Prüfungen.
+- Bereits erstellte ZIPs behalten ihre bisherigen Anweisungen; der neue Auftrag
+  gilt für frisch erstellte Archive.
+
 ## 1.0.6
 
 - Exportstatus meldet gewichteten Fortschritt, Arbeitsschritt und Bearbeitungszähler.

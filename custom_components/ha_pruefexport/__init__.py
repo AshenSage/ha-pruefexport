@@ -13,7 +13,8 @@ from .manager import ExportManager
 
 
 EXPORT_SCHEMA = vol.Schema(
-    {vol.Optional("pruefmodus", default="methode"): vol.In(("methode", "gesamt"))},
+    # Accept the old card parameter without exposing a choice of audit scopes.
+    {vol.Optional("pruefmodus"): vol.In(("methode", "gesamt"))},
     extra=vol.PREVENT_EXTRA,
 )
 
@@ -46,7 +47,7 @@ async def async_setup(hass, config):
         manager = hass.data.get(DOMAIN)
         if manager is None:
             raise HomeAssistantError("Bitte zuerst die Integration HA Prüfexport einrichten")
-        manager.start(call.data.get("pruefmodus", "methode"))
+        manager.start()
     async_register_admin_service(hass, DOMAIN, "export", export, schema=EXPORT_SCHEMA)
     return True
 

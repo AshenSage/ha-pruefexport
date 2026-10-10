@@ -62,7 +62,23 @@ class ExportTests(unittest.TestCase):
         self.assertIsNone(attributes["missing"])
         self.assertEqual(attributes["zero"], 0)
         self.assertEqual(before, (self.root / "configuration.yaml").read_bytes())
-        self.assertIn("Keine fachliche Prüfung".encode(), files["PRUEFAUFTRAG.md"])
+        self.assertEqual(manifest["pruefmodus"], "gesamt")
+        self.assertIn("alle exportierten Ansichten und Kacheln".encode(), files["PRUEFAUFTRAG.md"])
+
+    def test_default_and_legacy_export_have_same_combined_instruction(self):
+        _, legacy, legacy_files = self.build()
+        current = create_export(self.root, self.root / ".ha_pruefexport", self.snapshot)
+        with zipfile.ZipFile(self.root / ".ha_pruefexport" / current["filename"]) as archive:
+            task = archive.read("PRUEFAUFTRAG.md")
+            manifest = json.loads(archive.read("manifest.json"))
+        self.assertEqual(task, legacy_files["PRUEFAUFTRAG.md"])
+        self.assertEqual((legacy["mode"], current["mode"], manifest["pruefmodus"]), ("gesamt", "gesamt", "gesamt"))
+        for requirement in ("inventar/dateiliste.txt", "inventar/abhaengigkeiten.json",
+                            "Exporter prüfen", "jede Dashboardkachel prüfen",
+                            "erweiterungen/custom_components/ha_pruefexport/", "Maskierungsfehlern",
+                            "unbekannten Speicherformaten", "Codeänderungen", "KONTEXT.md"):
+            self.assertIn(requirement, task.decode())
+        self.assertNotIn("Keine fachliche Prüfung", task.decode())
 
     def test_secrets_inline_and_global_redaction(self):
         self.write("secrets.yaml", "api: my_very_secret_123\n")
@@ -510,6 +526,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
             await self.manager.task
         attrs = self.manager.attributes()
         self.assertTrue(attrs["has_archive"])
+        self.assertEqual(attrs["pruefmodus"], "gesamt")
         first = attrs["archive_name"]
         other = ExportManager(self.manager.hass)
         await other.async_load()

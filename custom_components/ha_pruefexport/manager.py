@@ -138,7 +138,7 @@ class ExportManager:
         await self.hass.async_add_executor_job(write)
 
     @callback
-    def start(self, mode):
+    def start(self, mode="gesamt"):
         if mode not in {"methode", "gesamt"}:
             raise HomeAssistantError("pruefmodus muss methode oder gesamt sein")
         if self.task is not None and not self.task.done():
@@ -153,7 +153,7 @@ class ExportManager:
                            progress_pct=0, processed=None, total=None, unit=None,
                            heartbeat_at=started, last_progress_at=started, elapsed_seconds=0,
                            last_error=None, last_error_details=None)
-        self.task = self.hass.async_create_background_task(self.run(mode), "HA Prüfexport")
+        self.task = self.hass.async_create_background_task(self.run("gesamt"), "HA Prüfexport")
         self.notify()
         return True
 
