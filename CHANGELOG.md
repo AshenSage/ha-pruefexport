@@ -1,5 +1,22 @@
 # Änderungen
 
+## 1.0.8
+
+- Automatisch erzeugte Lovelace-Übersichten werden anhand der HA-Info als solche
+  dokumentiert. Echte Ladefehler und Recovery-Zustände bleiben Exportlücken.
+- Begrenzten HA-Fehlerspeicher mit Warnungen und Fehlern lesend ergänzt, auch wenn
+  kein lokales Core-Log vorliegt. Nachrichten werden zusätzlich auf Zugangsdaten-
+  Zuweisungen geprüft; die Erfassung bleibt kein vollständiger Core-/Supervisor-Logexport.
+- Recorder-Zeilenbudget fair je Entität verteilt. Häufige Zähler verdrängen keine
+  anderen Entitäten; Kürzungen und Zeilenzähler werden je Entität dokumentiert.
+- Öffentliche ConnectLife-Buttonkennungen in nachgewiesenen Datenwörterbüchern
+  erhalten; allgemeine Schlüssel und tatsächlich erkannte Geheimnisse bleiben maskiert.
+- Lovelace-Ressourcenspeicher ergänzt, unbekannte Dateiformate ausdrücklich gemeldet.
+- Ausschlüsse für Medien/Backup/Export auf die Konfigurationswurzel begrenzt;
+  gleichnamige funktionale Unterordner von Integrationen werden erfasst.
+- Den während des Eigenexports aufgenommenen Status und die Grenzen gespeicherter
+  Traces ausdrücklich erläutert.
+
 ## 1.0.7
 
 - Ein gemeinsamer modellagnostischer Prüfauftrag für Exportgrundlage, Exporter,

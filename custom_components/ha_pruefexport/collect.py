@@ -53,6 +53,50 @@ def registry_snapshot(items):
     return result
 
 
+async def history_snapshot(hass, selection, report, *, hours=48, row_limit=10000, timeout=40):
+    """Bound history fairly per entity so fast counters cannot crowd out doors."""
+    recorder = importlib.import_module("homeassistant.components.recorder")
+    history = importlib.import_module("homeassistant.components.recorder.history")
+    end = datetime.now(timezone.utc)
+    cursor, earliest = end, end - timedelta(hours=hours)
+    quota = max(1, row_limit // len(selection))
+    data, counts, limited = {}, dict.fromkeys(selection, 0), set()
+    deadline = asyncio.get_running_loop().time() + timeout
+    while cursor > earliest:
+        active = [entity for entity in selection if counts[entity] < quota]
+        remaining = deadline - asyncio.get_running_loop().time()
+        if not active or remaining <= 0:
+            break
+        begin = max(earliest, cursor - timedelta(minutes=15))
+        job = partial(history.get_significant_states, hass, begin, cursor,
+                      entity_ids=active, include_start_time_state=False,
+                      significant_changes_only=True, minimal_response=True, no_attributes=True)
+        try:
+            chunk = await asyncio.wait_for(recorder.get_instance(hass).async_add_executor_job(job), remaining)
+        except TimeoutError:
+            break
+        for key, values in chunk.items():
+            if key not in counts or key not in active:
+                continue
+            available = quota - counts[key]
+            selected = values[-available:] if available else []
+            data.setdefault(key, [])[:0] = plain(selected)
+            counts[key] += len(selected)
+            if len(values) > available or (counts[key] == quota and begin > earliest):
+                limited.add(key)
+        cursor = begin
+        covered = (end - cursor).total_seconds() / (hours * 3600)
+        rows = sum(counts.values())
+        report("Verlauf lesen", 23 + 6 * max(covered, rows / row_limit), rows, unit="Verlaufzeilen")
+    incomplete = cursor > earliest or bool(limited)
+    return {"angefordert_von_utc": earliest.isoformat(), "bis_utc": end.isoformat(),
+            "erfasst_ab_utc": cursor.isoformat(), "status": "teilweise" if incomplete else "erfolgreich",
+            "hinweis": "Neueste Zustandsänderungen je Entität, ohne Attribute; gleichmässiges Zeilenbudget. Das Abfragezeitfenster ist keine Garantie für lückenlose Entitätsverläufe.",
+            "zeilenlimit": row_limit, "zeilenlimit_je_entitaet": quota,
+            "gekürzte_entitaeten": sorted(limited),
+            "zeilen_je_entitaet": counts, "states": data}, incomplete
+
+
 async def collect(hass, progress=None):
     started = utcnow()
     report = ProgressReporter(progress)
@@ -86,7 +130,8 @@ async def collect(hass, progress=None):
         row["last_reported"] = reported.isoformat() if reported else None
         state_rows.append(row)
     files["runtime/zustaende.json"] = {"erfasst_utc": utcnow(), "states": state_rows,
-                                         "hinweis": "input_text-Inhalte absichtlich maskiert; last_reported ist kein externer Quellenzeitstempel"}
+                                         "hinweis": "input_text-Inhalte absichtlich maskiert; last_reported ist kein externer Quellenzeitstempel",
+                                         "eigenexport_hinweis": "Der eigene Exportstatus wurde während dieses Laufs aufgenommen und kann laeuft/0 Prozent sowie das vorherige ZIP zeigen. Der Abschluss dieses Archivs steht in manifest.json und EXPORTBERICHT.md."}
     report("Systemdaten lesen", 4)
     await capture("runtime/ha_konfiguration.json", hass.config.as_dict)
     try:
@@ -124,6 +169,18 @@ async def collect(hass, progress=None):
         files["diagnose/repairs.json"] = plain(module.async_get(hass).issues)
     except Exception as error:
         problem("Repairs", error)
+    # Same bounded warning/error buffer exposed by HA's system_log/list. No
+    # service call, no log clearing, and no claim to have the full Core log.
+    try:
+        records = hass.data["system_log"].records.to_list()
+        files["diagnose/system_log.json"] = {
+            "erfasst_utc": utcnow(), "entries": plain(records[:100]),
+            "weitere_nicht_erfasst": max(0, len(records) - 100),
+            "hinweis": "Begrenzter HA-Fehlerspeicher: Warnungen und Fehler seit Start, gegebenenfalls zusammengefasst; kein vollständiges Core-/Supervisor-Log"}
+        if len(records) > 100:
+            issues.append({"bereich": "HA-Fehlerspeicher", "status": "teilweise", "grund": "Limit 100 zusammengefasste Fehlereinträge erreicht"})
+    except Exception as error:
+        problem("HA-Fehlerspeicher", error)
 
     # Read the in-memory Lovelace managers; disk sources are supplementary, not a substitute.
     report("Dashboards lesen", 14)
@@ -138,9 +195,25 @@ async def collect(hass, progress=None):
             # Avoid silent collisions in renamed dashboard URL paths.
             if filename in files:
                 raise ValueError("dashboard filename collision")
-            await capture(filename, lambda d=dashboard: d.async_load(False))
+            automatic = False
+            try:
+                files[filename] = plain(await asyncio.wait_for(dashboard.async_load(False), 45))
+            except Exception as error:
+                try:
+                    const = importlib.import_module("homeassistant.components.lovelace.const")
+                    if not isinstance(error, const.ConfigNotFound) or getattr(hass.config, "recovery_mode", False):
+                        raise error
+                    info = await asyncio.wait_for(dashboard.async_get_info(), 45)
+                    if not isinstance(info, dict) or info.get("mode") != "auto-gen":
+                        raise error
+                    automatic = True
+                    files[filename] = {"status": "automatisch_generiert", "info": plain(info),
+                        "hinweis": "HA hat keine gespeicherte Kartenkonfiguration; diese Übersicht wird im Frontend generiert. Laufzeitdaten und Registries sind enthalten, das erzeugte Layout ist nicht als statische Kartenliste erfasst."}
+                except Exception:
+                    problem(filename, error)
             dashboard_rows.append({"url_path": key, "archivpfad": filename,
-                                   "manager_type": type(dashboard).__name__, "geladen": filename in files,
+                                   "manager_type": type(dashboard).__name__, "geladen": filename in files and not automatic,
+                                   "status": "automatisch_generiert" if automatic else "erfasst" if filename in files else "fehlgeschlagen",
                                    "einstellungen": plain(getattr(dashboard, "config", {}))})
             config = getattr(dashboard, "config", {})
             if isinstance(config, dict) and isinstance(config.get("filename"), str):
@@ -239,40 +312,10 @@ async def collect(hass, progress=None):
     if selection:
         report("Verlauf lesen", 23, 0, unit="Verlaufzeilen")
         try:
-            recorder = importlib.import_module("homeassistant.components.recorder")
-            history = importlib.import_module("homeassistant.components.recorder.history")
-            end = datetime.now(timezone.utc)
-            cursor, earliest = end, end - timedelta(hours=48)
-            data, left, truncated = {}, 10000, False
-            deadline = asyncio.get_running_loop().time() + 40
-            while cursor > earliest and left > 0:
-                remaining = deadline - asyncio.get_running_loop().time()
-                if remaining <= 0:
-                    break
-                begin = max(earliest, cursor - timedelta(minutes=15))
-                job = partial(history.get_significant_states, hass, begin, cursor,
-                              entity_ids=selection, include_start_time_state=False,
-                              significant_changes_only=True, minimal_response=True, no_attributes=True)
-                try:
-                    chunk = await asyncio.wait_for(recorder.get_instance(hass).async_add_executor_job(job), remaining)
-                except TimeoutError:
-                    break
-                for key, values in chunk.items():
-                    if len(values) > left:
-                        truncated = True
-                    selected = values[-left:] if left else []
-                    data.setdefault(key, [])[:0] = plain(selected)
-                    left -= len(selected)
-                cursor = begin
-                covered = (end - cursor).total_seconds() / (48 * 3600)
-                report("Verlauf lesen", 23 + 6 * max(covered, (10000 - left) / 10000), 10000 - left, unit="Verlaufzeilen")
-            incomplete = cursor > earliest or truncated
+            history_data, incomplete = await history_snapshot(hass, selection, report)
             if incomplete:
-                issues.append({"bereich": "Verlauf", "status": "teilweise", "grund": "48-Stunden-Verlauf wegen 10000-Zeilen-/40-Sekunden-Limit nur teilweise erfasst"})
-            files["diagnose/verlauf.json"] = {"angefordert_von_utc": earliest.isoformat(), "bis_utc": end.isoformat(),
-                                               "erfasst_ab_utc": cursor.isoformat(), "status": "teilweise" if incomplete else "erfolgreich",
-                                               "hinweis": "Nur Zustandsänderungen, ohne Attribute; Einheiten stehen im aktuellen Zustandsauszug",
-                                               "states": data}
+                issues.append({"bereich": "Verlauf", "status": "teilweise", "grund": "Verlauf wegen Zeilenbudget je Entität oder 40-Sekunden-Limit teilweise erfasst; Grenzen und Zähler stehen in diagnose/verlauf.json"})
+            files["diagnose/verlauf.json"] = history_data
         except Exception as error:
             problem("Verlauf", error)
 
@@ -281,12 +324,12 @@ async def collect(hass, progress=None):
     files["diagnose/umfang.json"] = {
         "integration_diagnosen": "nicht automatisch abgerufen; Anbieterformat/Maskierung muss je Integration geprüft werden",
         "statistikdaten": "nicht automatisch abgerufen; bei Statistik-/Energiekarten gezielt ergänzen",
-        "traces": "Vorhandene .storage/trace.saved_traces wird maskiert mitgesammelt; keine neue Trace-Ausführung",
+        "traces": "Vorhandene .storage/trace.saved_traces wird maskiert vom Datenträger mitgesammelt; keine aktuellen Laufzeittraces abgefragt und keine neue Trace-Ausführung",
         "externe_apps": "Nur unter /config vorhandene Quellen; keine Supervisor-/App-/Controller-Konfiguration ausserhalb dieses Bereichs",
-        "system_logs": "Vorhandene lokale HA-Logdateien jeweils letzte 256 KiB; kein Supervisor-Logzugriff",
+        "system_logs": "HA-Fehlerspeicher bis 100 zusammengefasste Einträge; vorhandene lokale HA-Logdateien jeweils letzte 256 KiB; kein vollständiges Core-/Supervisor-Log",
         "quellen_cache": "Vorhandene JSON-/Textquellen unter /config; keine beliebigen unbekannten Dienste"}
     issues.append({"bereich": "Ergänzende Diagnosen/Statistiken/externe Apps", "status": "nicht_ausgewertet",
-                   "grund": "Keine pauschale Erfassung; Bedarf anhand Dashboard und Integrationen im Methodencheck klären"})
+                   "grund": "Keine pauschale Erfassung; Bedarf anhand Dashboard und Integrationen im Gesamtprüfauftrag klären"})
     files["runtime/snapshot_zeitfenster.json"] = {"start_utc": started, "ende_utc": utcnow(), "atomar": False}
     report("HA-Daten gelesen", 30)
     return result

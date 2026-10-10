@@ -4,7 +4,7 @@ Lokale Home-Assistant-Integration für ein dokumentiertes Prüfarchiv aus Konfig
 Dashboards und Laufzeitdaten. Das ZIP wird auf dem HA-System erstellt und kann über
 eine authentifizierte Administrator-Sitzung heruntergeladen werden.
 
-Version **1.0.7** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
+Version **1.0.8** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
 Python-Abhängigkeiten für die Integration.
 
 ## Installation mit HACS
@@ -113,8 +113,10 @@ Erfasst werden unter anderem:
 
 - Textkonfiguration, YAML-Einbindungen, Helferspeicher und Quellen eigener Erweiterungen;
 - aktive UI- und YAML-Dashboards sowie Frontendressourcen;
+- automatisch erzeugte Übersichten mit Herkunftshinweis statt einer erfundenen statischen Kartenliste;
 - aktuelle Zustände samt Zeitstempeln, Registries, Integrationseinträge und Dienste;
-- vorhandene lokale HA-Logdateien als begrenzte Ausschnitte und gespeicherte Traces;
+- bis zu 100 zusammengefasste Warnungen/Fehler aus dem HA-Fehlerspeicher, vorhandene
+  lokale HA-Logdateien als begrenzte Ausschnitte und auf Datenträger gespeicherte Traces;
 - Wetterprognosen und Kalenderantworten über lesende HA-Aktionen;
 - ein begrenzter Recorder-Verlauf für ausdrücklich im Dashboard genannte Entitäten.
 
@@ -122,11 +124,20 @@ Nicht unterstützte Formate, fehlende Referenzen, Abruffehler und erreichte Limi
 stehen als Lücken im Exportbericht. Unbekannte `.storage`-Formate werden inventarisiert,
 aber nicht ungeprüft kopiert. Anbieterdiagnosen, Langzeitstatistiken und externe Apps
 werden nicht pauschal als vollständig erfasst ausgegeben.
+Unbekannte Dateiformate werden ausdrücklich zur Prüfung markiert; bekannte Medien,
+Fonts und ergänzende Source-Maps bleiben bewusst ausgelassen. Medien-/Backup-/Export-
+Verzeichnisse werden nur am Konfigurationswurzelverzeichnis ausgeschlossen, damit
+gleichnamige funktionale Unterordner eigener Integrationen mitgesammelt werden.
 
 Grenzen: 12 MiB je Textdatei, 80 MiB Quelldatenbudget, 100000 inventarisierte Dateien;
 Logausschnitte bis 256 KiB je unterstützter Datei. Der Recorder-Abruf versucht 48 Stunden
 für bis zu 100 Entitäten und ist auf 10000 Zeilen begrenzt. Vollständige Core- und
 Supervisor-Logs werden nicht automatisch abgerufen.
+Das Zeilenbudget wird gleichmässig auf ausgewählte Entitäten verteilt. Häufige
+Messwerte können dadurch ältere Tür-/Alarmereignisse anderer Entitäten nicht verdrängen.
+Je Entität werden die neuesten Änderungen bis zum Budget erfasst; gekürzte Entitäten,
+Zeilenzähler und Abfragezeitfenster sind dokumentiert. Ein Abfragezeitfenster von
+48 Stunden bedeutet bei Kürzungen keinen lückenlosen Verlauf jeder Entität.
 
 Ein Exportstatus „vollständig“ beschreibt nur den dokumentierten Erfassungsumfang,
 keine fehlerfreie HA-Konfiguration. „Umfang prüfen“ verweist auf Einschränkungen im Bericht.
@@ -140,6 +151,10 @@ Der Download verlangt eine authentifizierte HA-Administratoridentität.
 Auth-Dateien, Inhalte von `secrets.yaml`, Datenbanken, Backups, private Schlüssel und
 Medien werden ausgeschlossen. Bekannte Zugangsdatenfelder und lokal erkannte Secret-Werte
 werden maskiert; `input_text`-Zustandsinhalte werden vorsorglich maskiert.
+Nachgewiesene öffentliche ConnectLife-Buttonkennungen in den ausgelieferten
+Datenwörterbüchern bleiben erhalten. Die Ausnahme gilt nur für bekannte Kennungen
+im passenden Dateipfad und in einer Buttondefinition mit Schreibbeschreibung;
+gleichlautende Werte, die anderswo als Zugangsdaten erkannt werden, bleiben maskiert.
 Archivpfade und übernommene Manifestdaten werden ebenfalls geprüft.
 
 Gerätenamen, interne IPs, Kalenderdaten und Log-/Trace-Inhalte können persönliche

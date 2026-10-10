@@ -17,7 +17,13 @@ Administratorprüfung, Downloadpfade, Fehlerdiagnosen und die tatsächliche Kart
 Die Prüfung führt keine Geräteaktionen aus und benötigt keine HA-Zugangsdaten.
 Die Test-Zugangsdaten in den Fixtures sind absichtlich erfundene Werte.
 
-Version 1.0.7: 61 lokale Tests und die Syntax-/Kartenprüfung bestehen.
+Version 1.0.8: 72 lokale Tests und die Syntax-/Kartenprüfung bestehen.
+Neue Regressionstests prüfen den Unterschied zwischen automatisch erzeugter
+Übersicht und echtem Ladefehler, begrenzte/maskierte Live-Fehlereinträge ohne
+Geräteaktionen, fairen Verlauf mit einem häufigen Zähler und einem älteren Türereignis,
+leere gegenüber abgebrochenen Verlaufabfragen, unbekannte Formate, funktionale
+Unterordner, Lovelace-Ressourcenspeicher und die enge Ausnahme für öffentliche
+ConnectLife-Buttonkennungen einschliesslich gleichlautender echter Zugangsdaten.
 Der parameterlose Kartenaufruf und frühere Modusparameter werden mit beiden
 Schema-Engines geprüft. Echte ZIPs aus dem Standardaufruf und einem früheren
 `methode`-Aufruf enthalten denselben kombinierten Prüfauftrag; Archivmetadaten und

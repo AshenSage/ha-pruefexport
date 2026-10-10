@@ -30,12 +30,17 @@ GENERATED_PATHS = {"inventar/secrets_nur_namen.json", "inventar/abhaengigkeiten.
                    "PRUEFAUFTRAG.md", "EXPORTBERICHT.md", "manifest.json"}
 TEXT_EXT = {".yaml", ".yml", ".json", ".py", ".sh", ".js", ".mjs", ".css",
             ".jinja", ".jinja2", ".j2", ".md", ".toml", ".txt", ".html", ".svg", ".conf", ".ini"}
-SKIP_DIR = {".git", "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv",
-            ".ha_pruefexport", "backups", "backup", "media", "tts", ".cloud"}
+SKIP_DIR = {".git", "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv"}
+ROOT_SKIP_DIR = {".ha_pruefexport", "backups", "backup", "media", "tts", ".cloud", ".cache"}
+KNOWN_NON_SOURCE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".bmp",
+                        ".mp4", ".mkv", ".mov", ".mp3", ".wav", ".ogg", ".flac", ".ttf",
+                        ".woff", ".woff2", ".eot", ".map"}
+KNOWN_NON_SOURCE_NAMES = {".HA_VERSION", ".ha_run.lock", "home-assistant.log.fault"}
+CONNECTLIFE_BUTTON_KEYS = {"cancel", "light_off", "light_on", "pause", "resume", "start", "stop", "stop_add_go"}
 STORAGE_ALLOWED = {"core.config", "core.restore_state", "core.config_entries",
                    "core.entity_registry", "core.device_registry", "core.area_registry",
                    "core.floor_registry", "core.label_registry", "core.category_registry",
-                   "energy", "trace.saved_traces", "frontend.user_data"}
+                   "energy", "trace.saved_traces", "frontend.user_data", "lovelace_resources"}
 HELPERS = {"input_boolean", "input_button", "input_datetime", "input_number", "input_select",
            "input_text", "timer", "counter", "schedule", "person", "zone", "tag"}
 SECRET_KEY = re.compile(r"(?i)^(?:.*(?:password|passwd|passphrase|private_key|client_secret|"
@@ -161,6 +166,14 @@ class Redactor:
         if isinstance(value, (list, tuple, set)):
             return [self.object(v, path) for v in value]
         if isinstance(value, str):
+            if path.startswith("diagnose/system_log.json/"):
+                # Log messages are unstructured: learn and mask quoted assignments
+                # and plain key=value fields before the completed literal sweep.
+                value = self.source(value, ".txt")
+                def log_assignment(match):
+                    self.remember(match[2])
+                    return match[1] + self.mask()
+                value = re.sub(r"(?i)(\b(?:password|passwd|api_key|apikey|access_token|refresh_token|client_secret|alarm_code|pin)\s*[:=]\s*)([a-zA-Z0-9_./+~=-]+)", log_assignment, value)
             return self.text(value)
         if value is None or isinstance(value, (bool, int)):
             return value
@@ -172,10 +185,25 @@ class Redactor:
             return self.object(value.as_dict(), path)
         return {"nicht_exportierbar": "Datentyp " + type(value).__name__}
 
-    def yaml(self, source):
+    def yaml(self, source, source_path=""):
         root = yaml.compose(source)
         changes = []
         visited = set()
+        public_keys = set()
+        # ConnectLife ships declarative button identifiers named "key". This
+        # narrow exception never applies to generic keys, unknown identifiers,
+        # credentials, or values learned as secrets elsewhere.
+        if re.fullmatch(r"custom_components/connectlife/data_dictionaries/[a-zA-Z0-9_-]+\.ya?ml", source_path) and isinstance(root, yaml.MappingNode):
+            for field, buttons in root.value:
+                if field.value != "buttons" or not isinstance(buttons, yaml.SequenceNode):
+                    continue
+                for button in buttons.value:
+                    if not isinstance(button, yaml.MappingNode):
+                        continue
+                    fields = {k.value: v for k, v in button.value}
+                    key_node = fields.get("key")
+                    if isinstance(key_node, yaml.ScalarNode) and key_node.tag == "tag:yaml.org,2002:str" and key_node.value in CONNECTLIFE_BUTTON_KEYS and isinstance(fields.get("write"), yaml.MappingNode):
+                        public_keys.add(id(key_node))
 
         def walk(node, key=None, path=""):
             if node is None or id(node) in visited:
@@ -184,7 +212,7 @@ class Redactor:
             if isinstance(node, yaml.ScalarNode):
                 if node.tag == "!secret":
                     self.secret_names.add(node.value)
-                if node.tag != "!secret" and is_secret_key(key or "") and node.tag != "tag:yaml.org,2002:null" and not self.expression(node.value):
+                if id(node) not in public_keys and node.tag != "!secret" and is_secret_key(key or "") and node.tag != "tag:yaml.org,2002:null" and not self.expression(node.value):
                     self.remember(node.value)
                     changes.append((node.start_mark.index, node.end_mark.index, json.dumps(self.mask())))
                 elif node.tag != "!secret" and key == "initial" and "/input_text/" in path:
@@ -213,7 +241,7 @@ class Redactor:
 
     def source(self, source, extension, path=""):
         if extension in {".yaml", ".yml"}:
-            return self.yaml(source)
+            return self.yaml(source, path)
         if extension == ".json":
             raw = json.loads(source)
             metadata_key = storage_metadata_key(raw, path)
@@ -377,8 +405,9 @@ class Builder:
             for name in list(dirs):
                 p = Path(parent) / name
                 rel = p.relative_to(self.root).as_posix()
-                old_export = bool(OLD_EXPORT_DIR_RE.fullmatch(name))
-                if p.is_symlink() or name in SKIP_DIR or old_export:
+                at_root = Path(parent) == self.root
+                old_export = at_root and bool(OLD_EXPORT_DIR_RE.fullmatch(name))
+                if p.is_symlink() or name in SKIP_DIR or (at_root and name in ROOT_SKIP_DIR) or old_export:
                     self.inventory.append({"pfad": rel + "/", "typ": "symlink" if p.is_symlink() else "verzeichnis",
                                            "entscheidung": "ausgelassen", "grund": "Symlink" if p.is_symlink() else
                                            "Früheres Prüfexport-Verzeichnis; Unterbaum nicht inventarisiert" if old_export else
@@ -432,6 +461,8 @@ class Builder:
                     is_log = lower in {"home-assistant.log", "home-assistant.log.1"}
                     if not is_storage and not is_log and p.suffix.lower() not in TEXT_EXT:
                         row["grund"] = "Binärdatei oder nicht unterstütztes Format"
+                        if p.suffix.lower() not in KNOWN_NON_SOURCE_EXT and name not in KNOWN_NON_SOURCE_NAMES and not rel.startswith("image/"):
+                            self.issue(rel, "nicht_ausgewertet", "Nicht unterstütztes Dateiformat; mögliche zusätzliche Quelle prüfen")
                         continue
                     if s.st_size > self.max_file and not is_log:
                         row["grund"] = "Dateilimit erreicht"
@@ -454,7 +485,7 @@ class Builder:
                         if ext in {".yaml", ".yml"}:
                             self.nodes[rel] = yaml.compose(source)
                             # Learn all literals before processing any other file.
-                            self.redactor.yaml(source)
+                            self.redactor.yaml(source, rel)
                         elif ext == ".json":
                             raw = json.loads(source)
                             self.redactor.learn(raw, storage_metadata_key(raw, rel))
@@ -571,7 +602,10 @@ class Builder:
         self.redactor.learn(self.snapshot)
         self.inventory_files()
         if not any(is_log for _, _, is_log in self.contents.values()):
-            self.issue("HA-Logs", "nicht_erfasst", "Keine unterstützte lokale HA-Logdatei vorhanden; vollständige Core-/Supervisor-Logs sind nicht enthalten")
+            detail = "Keine unterstützte lokale HA-Logdatei vorhanden; vollständige Core-/Supervisor-Logs sind nicht enthalten"
+            if "diagnose/system_log.json" in self.snapshot.get("files", {}):
+                detail += "; der begrenzte HA-Fehlerspeicher ist separat enthalten"
+            self.issue("HA-Logs", "nicht_erfasst", detail)
         self.report("Einbindungen prüfen", 35)
         self.find_dependencies()
         runtime_files = {}
@@ -585,7 +619,7 @@ class Builder:
         self.write_sources()
         self.report("HA-Laufzeitdaten maskieren", 68, 0, len(runtime_files), "Datensätze")
         for index, (name, value) in enumerate(runtime_files.items()):
-            self.add(name, dump_json(self.redactor.object(self.archive_references(value))))
+            self.add(name, dump_json(self.redactor.object(self.archive_references(value), name)))
             self.report("HA-Laufzeitdaten maskieren", 68 + 5 * (index + 1) / max(1, len(runtime_files)), index + 1, len(runtime_files), "Datensätze")
         referenced_secrets = [{"name": name, "vorhanden": name in self.secret_present} for name in sorted(self.redactor.secret_names)]
         if any(not row["vorhanden"] for row in referenced_secrets):
