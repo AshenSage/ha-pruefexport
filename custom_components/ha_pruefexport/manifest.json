@@ -1,0 +1,14 @@
+{
+  "domain": "ha_pruefexport",
+  "name": "HA Prüfexport",
+  "version": "1.0.5",
+  "config_flow": true,
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "dependencies": ["http", "lovelace"],
+  "after_dependencies": ["recorder", "hassio"],
+  "documentation": "https://github.com/AshenSage/ha-pruefexport",
+  "issue_tracker": "https://github.com/AshenSage/ha-pruefexport/issues",
+  "requirements": [],
+  "codeowners": ["@AshenSage"]
+}

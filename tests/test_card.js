@@ -1,0 +1,60 @@
+/* Run after validate.py writes the actual YAML templates to a temporary JSON file. */
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const code = s => s.trim().slice(3, -3);
+const compile = s => new Function('entity','hass','window','alert',code(s));
+for (const template of config.templates) compile(template);
+const card = config.card;
+const label = compile(card.cards[0].label);
+const details = compile(card.cards[0].custom_fields.details);
+const start = compile(card.cards[1].cards[0].tap_action.action);
+const download = compile(card.cards[1].cards[1].tap_action.javascript);
+const admin = {user:{is_admin:true}};
+for (const value of [undefined, {state:'unknown'}, {state:'unavailable'}]) {
+  assert.match(label(value), /nicht verfügbar/);
+  assert.equal(start(value, admin), 'none');
+}
+assert.equal(start({state:'laeuft'}, admin), 'none');
+assert.equal(start({state:'bereit'}, admin), 'call-service');
+assert.equal(start({state:'bereit'}, {user:{is_admin:false}}), 'none');
+assert.doesNotMatch(details({state:'bereit',attributes:{}}), /1970|0 MB/);
+const timedEntity={state:'teilweise',attributes:{has_archive:true,archive_finished:'2026-01-15T06:00:00+00:00',archive_bytes:1048576,archive_sources:10,archive_status:'teilweise'}};
+assert.match(details(timedEntity), /06:00/);
+assert.match(details(timedEntity,{config:{time_zone:'America/New_York'}}), /01:00/);
+assert.match(details(timedEntity,{config:{time_zone:'invalid-test-zone'}}), /Nicht beurteilbar/);
+assert.match(details({state:'fehler',attributes:{has_archive:true,last_error:'<script>alert(1)</script>'}}), /&lt;script&gt;/);
+assert.match(details({state:'fehler',attributes:{has_archive:true}}), /vorherige ZIP/);
+
+(async () => {
+  const path='/api/ha_pruefexport/download/ha_pruefexport_20260115_060000_abcdef12.zip';
+  const entity={state:'teilweise',attributes:{has_archive:true,download_path:path}};
+  let calls=0, assigned=null, alerts=0;
+  const win={location:{origin:'https://ha.example',assign:value => {assigned=value}}};
+  const hass={...admin,callWS:async msg => {
+    calls++;
+    assert.deepEqual(msg,{type:'auth/sign_path',path,expires:60});
+    return {path:path+'?authSig=temporary-test-signature'};
+  }};
+  const flush=async()=>{await new Promise(resolve=>setImmediate(resolve))};
+  const alert=()=>alerts++;
+  download(entity,hass,win,alert);
+  await flush();
+  assert.equal(calls,1);
+  assert.equal(assigned,'https://ha.example'+path+'?authSig=temporary-test-signature');
+  assigned=null;
+  download({...entity,state:'unavailable'},hass,win,alert);
+  download(entity,{...hass,user:{is_admin:false}},win,alert);
+  download({...entity,attributes:{has_archive:true,download_path:'/etc/passwd'}},hass,win,alert);
+  await flush();
+  assert.equal(calls,1);
+  assert.equal(assigned,null);
+  download(entity,{...hass,callWS:async()=>({path:'https://evil.example'+path+'?authSig=x'})},win,alert);
+  await flush();
+  assert.equal(alerts,1);
+  assert.equal(assigned,null);
+  download(entity,{...hass,callWS:async()=>{throw new Error('secret provider detail')}},win,alert);
+  await flush();
+  assert.equal(alerts,2);
+  console.log('Karten-JavaScript: Syntax, Verfügbarkeit, Zeitbezug, Escaping und geschützter Download bestanden.');
+})().catch(error=>{console.error(error);process.exitCode=1});

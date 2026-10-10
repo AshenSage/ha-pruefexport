@@ -1,0 +1,12 @@
+{
+  "title": "HA Prüfexport",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Lokalen Prüfexport einrichten",
+        "description": "Erstellt Diagnose-ZIPs auf Knopfdruck. Keine Zugangsdaten erforderlich. Die Archive werden geschützt ausserhalb von www gespeichert."
+      }
+    },
+    "abort": {"already_configured": "HA Prüfexport ist bereits eingerichtet."}
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "title": "HA Prüfexport",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Lokalen Prüfexport einrichten",
+        "description": "Erstellt private Prüfarchive und sensor.ha_pruefexport. Keine Zugangsdaten erforderlich. Nach Einrichtung die mitgelieferte Systemkarte einsetzen."
+      }
+    },
+    "abort": {
+      "already_configured": "HA Prüfexport ist bereits eingerichtet."
+    }
+  }
+}

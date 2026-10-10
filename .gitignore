@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ha_pruefexport/
+ha_pruefexport_*.zip
+ha_pruefexport_kontext.md
+secrets.yaml
+.storage/
+*.log

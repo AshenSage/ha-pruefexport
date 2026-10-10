@@ -1,0 +1,4 @@
+PyYAML>=6.0,<7
+aiohttp>=3.11,<4
+voluptuous==0.16.0
+probatio==0.13.0
