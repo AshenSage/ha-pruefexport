@@ -485,7 +485,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(attrs["archive_finished"])
 
     async def test_safe_diagnostic_identifies_collection_phase_and_hides_message(self):
-        async def fail(hass):
+        async def fail(hass, progress=None):
             raise ValueError("https://provider.invalid/?token=do_not_log_this_123")
         with patch("ha_pruefexport.manager.collect", fail), self.assertLogs("ha_pruefexport.manager", level="ERROR") as logs:
             self.manager.start("methode")
@@ -499,13 +499,14 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("provider.invalid", str(attributes) + str(logs.output))
 
     async def test_double_start_status_restart_failure_previous(self):
-        async def collect(hass):
+        async def collect(hass, progress=None):
             await asyncio.sleep(0.01)
             return {"started": "2026-01-15T06:00:00+00:00", "files": {}, "issues": [], "local_references": []}
         with patch("ha_pruefexport.manager.collect", collect):
             self.manager.start("methode")
-            with self.assertRaises(exceptions.HomeAssistantError):
-                self.manager.start("methode")
+            first_task = self.manager.task
+            self.assertFalse(self.manager.start("methode"))
+            self.assertIs(self.manager.task, first_task)
             await self.manager.task
         attrs = self.manager.attributes()
         self.assertTrue(attrs["has_archive"])
@@ -513,7 +514,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         other = ExportManager(self.manager.hass)
         await other.async_load()
         self.assertEqual(other.attributes()["archive_name"], first)
-        async def fail(hass):
+        async def fail(hass, progress=None):
             raise RuntimeError("a sensitive provider message")
         with patch("ha_pruefexport.manager.collect", fail):
             self.manager.start("methode")

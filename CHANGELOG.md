@@ -1,5 +1,19 @@
 # Änderungen
 
+## 1.0.6
+
+- Exportstatus meldet gewichteten Fortschritt, Arbeitsschritt und Bearbeitungszähler.
+- Regelmässige Statusmeldungen und Laufzeit bleiben auch bei langsamen HA-Abrufen sichtbar.
+- Die Karte zeigt Prozentbalken, aktuellen Schritt und letzte Statusmeldung.
+  Bei längerer Zeit ohne messbaren Fortschritt erscheint ein Hinweis.
+- Laufender Export deaktiviert den Startknopf und kennzeichnet ein vorhandenes ZIP als vorheriges Archiv.
+- Wiederholte Startaufrufe lösen keinen zweiten Export und keine Fehlermeldung aus.
+- Fortschrittsmeldungen aus dem Dateiarbeiter werden auf den HA-Eventloop übertragen;
+  alte Meldungen können einen neuen oder beendeten Lauf nicht überschreiben.
+- ZIP-Mitglieder werden bei der CRC-Prüfung stückweise gelesen, um den Abbruch auch
+  während grosser Dateien prüfen zu können. Fehlerhafte Archive werden nicht freigegeben.
+- Die neue Fortschrittsanzeige erfordert einmalig die aktualisierte Karten-YAML.
+
 ## 1.0.5
 
 - HACS-Manifest, öffentliche Dokumentation, Issue-Tracker und Codeowner ergänzt.

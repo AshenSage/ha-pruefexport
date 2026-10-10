@@ -100,7 +100,8 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
         hass = types.SimpleNamespace(config=config, states=types.SimpleNamespace(async_all=lambda: states), services=services,
                                      config_entries=types.SimpleNamespace(async_entries=lambda: []),
                                      data={"lovelace": types.SimpleNamespace(dashboards={"main": Dashboard()}, resources=ResourceYAMLCollection())})
-        data = await collect(hass)
+        progress = []
+        data = await collect(hass, progress=progress.append)
         files = data["files"]
         self.assertEqual(files["runtime/zustaende.json"]["states"][0]["state"], "0")
         self.assertIn("MASKIERT", files["runtime/zustaende.json"]["states"][1]["state"])
@@ -113,6 +114,12 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(services.calls), 3)
         self.assertTrue(all((domain, action) in {("weather", "get_forecasts"), ("calendar", "get_events")} for domain, action, _, _ in services.calls))
         self.assertNotIn("secret_provider_url", str(data))
+        self.assertEqual(progress[-1]["progress_pct"], 30)
+        self.assertEqual([p["progress_pct"] for p in progress], sorted(p["progress_pct"] for p in progress))
+        responses = [p for p in progress if p["phase"] == "Wetter und Kalender lesen"]
+        self.assertEqual(responses[-1]["processed"], 3)
+        self.assertEqual(responses[-1]["total"], 3)
+        self.assertNotIn("secret_provider_url", str(progress))
 
 
 # Import only the route/init module with documented HA hooks stubbed.

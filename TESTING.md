@@ -17,7 +17,15 @@ Administratorprüfung, Downloadpfade, Fehlerdiagnosen und die tatsächliche Kart
 Die Prüfung führt keine Geräteaktionen aus und benötigt keine HA-Zugangsdaten.
 Die Test-Zugangsdaten in den Fixtures sind absichtlich erfundene Werte.
 
-Version 1.0.5: 54 lokale Tests und die Syntax-/Kartenprüfung bestehen.
+Version 1.0.6: 60 lokale Tests und die Syntax-/Kartenprüfung bestehen.
+Zusätzlich geprüft: Bearbeitungszähler und Phasen vor Archivfreigabe, gedrosselte
+Fortschrittsmeldungen, langsame HA-Abrufe mit Statusmeldungen ohne erfundenen Fortschritt,
+Entity-Benachrichtigungen ausschliesslich auf dem Eventloop, doppelte Startaufrufe,
+Zurücksetzen beim nächsten Lauf, alte Meldungen und Abbruch ohne 100-Prozent-Erfolg.
+Ein absichtlich beschädigter komprimierter ZIP-Inhalt wird bei der CRC-Prüfung abgewiesen;
+temporäre Dateien werden entfernt und kein ZIP veröffentlicht. Die tatsächlichen Karten-
+Templates werden mit laufendem Export, Prozentgrenzen, Dateizählern, Laufzeit,
+Statusuhrzeit, Escaping, länger ausbleibendem Fortschritt und vorherigem ZIP ausgeführt.
 Diese Aussage bezieht sich auf die mitgelieferten API-Doubles, nicht auf einen vollständigen
 HA-Core-Lauf. HA-Authentifizierungsmiddleware und WebSocket-Signierung werden durch
 Doubles ersetzt. Die erste tatsächliche HACS-Installation muss separat in HA geprüft werden.

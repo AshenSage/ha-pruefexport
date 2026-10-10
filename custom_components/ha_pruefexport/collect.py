@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlsplit
 from zoneinfo import ZoneInfo
 
 from .exporter import utcnow
+from .progress import ProgressReporter
 
 
 def plain(value):
@@ -52,8 +53,10 @@ def registry_snapshot(items):
     return result
 
 
-async def collect(hass):
+async def collect(hass, progress=None):
     started = utcnow()
+    report = ProgressReporter(progress)
+    report("HA-Zustände lesen", 2)
     files, issues = {}, []
     result = {"started": started, "files": files, "issues": issues, "local_references": []}
 
@@ -84,6 +87,7 @@ async def collect(hass):
         state_rows.append(row)
     files["runtime/zustaende.json"] = {"erfasst_utc": utcnow(), "states": state_rows,
                                          "hinweis": "input_text-Inhalte absichtlich maskiert; last_reported ist kein externer Quellenzeitstempel"}
+    report("Systemdaten lesen", 4)
     await capture("runtime/ha_konfiguration.json", hass.config.as_dict)
     try:
         module = importlib.import_module("homeassistant.helpers.system_info")
@@ -98,20 +102,23 @@ async def collect(hass):
         await capture("runtime/dienstbeschreibungen.json", lambda: module.async_get_all_descriptions(hass))
     except Exception as error:
         problem("runtime/dienstbeschreibungen.json", error)
+    report("Integrationen lesen", 6)
     entries = hass.config_entries.async_entries()
     files["inventar/integrationen.json"] = [
         {"entry_id": entry.entry_id, "domain": entry.domain, "title": entry.title,
          "source": entry.source, "state": plain(entry.state), "disabled_by": plain(entry.disabled_by),
          "version": entry.version, "data": plain(entry.data), "options": plain(entry.options)} for entry in entries]
 
-    for name, attribute in [("entity", "entities"), ("device", "devices"), ("area", "areas"),
-                            ("floor", "floors"), ("label", "labels")]:
+    for index, (name, attribute) in enumerate([("entity", "entities"), ("device", "devices"), ("area", "areas"),
+                            ("floor", "floors"), ("label", "labels")]):
+        report("Geräte und Entitäten lesen", 7 + index)
         try:
             module = importlib.import_module("homeassistant.helpers." + name + "_registry")
             registry = module.async_get(hass)
             files["runtime/registry_" + name + ".json"] = registry_snapshot(getattr(registry, attribute))
         except Exception as error:
             problem("Registry " + name, error)
+    report("Diagnosehinweise lesen", 12)
     try:
         module = importlib.import_module("homeassistant.helpers.issue_registry")
         files["diagnose/repairs.json"] = plain(module.async_get(hass).issues)
@@ -119,12 +126,13 @@ async def collect(hass):
         problem("Repairs", error)
 
     # Read the in-memory Lovelace managers; disk sources are supplementary, not a substitute.
+    report("Dashboards lesen", 14)
     try:
         lovelace = hass.data["lovelace"]
         dashboards = lovelace.get("dashboards") if isinstance(lovelace, dict) else lovelace.dashboards
         resources = lovelace.get("resources") if isinstance(lovelace, dict) else lovelace.resources
         dashboard_rows = []
-        for key, dashboard in dashboards.items():
+        for index, (key, dashboard) in enumerate(dashboards.items()):
             identifier = "standard" if key is None else str(key)
             filename = "dashboards/" + re.sub(r"[^a-zA-Z0-9_.-]", "_", identifier) + ".json"
             # Avoid silent collisions in renamed dashboard URL paths.
@@ -137,6 +145,7 @@ async def collect(hass):
             config = getattr(dashboard, "config", {})
             if isinstance(config, dict) and isinstance(config.get("filename"), str):
                 result["local_references"].append(config["filename"])
+            report("Dashboards lesen", 14 + 4 * (index + 1) / max(1, len(dashboards)), index + 1, len(dashboards), "Dashboards")
         files["inventar/dashboards.json"] = dashboard_rows
         if not dashboard_rows:
             problem("Dashboards", ValueError())
@@ -149,6 +158,7 @@ async def collect(hass):
     except Exception as error:
         problem("Live-Dashboards/Ressourcen", error)
 
+    report("Dashboard-Verweise lesen", 19)
     # Extract local resource paths and blueprint references. These are checked by the worker.
     def references(value):
         if isinstance(value, dict):
@@ -179,19 +189,24 @@ async def collect(hass):
 
     # The only invoked services are explicitly read-only response services.
     semaphore = asyncio.Semaphore(3)
+    completed_responses = 0
     async def response(domain, action, entity, data, name):
+        nonlocal completed_responses
         async with semaphore:
-            if not hass.services.has_service(domain, action):
-                files[name] = {"entity_id": entity, "status": "nicht_unterstuetzt", "response": None}
-                problem(name, NotImplementedError())
-                return
             try:
+                if not hass.services.has_service(domain, action):
+                    files[name] = {"entity_id": entity, "status": "nicht_unterstuetzt", "response": None}
+                    problem(name, NotImplementedError())
+                    return
                 answer = await asyncio.wait_for(hass.services.async_call(domain, action, data,
                     target={"entity_id": entity}, blocking=True, return_response=True), 30)
                 files[name] = {"entity_id": entity, "abgerufen_utc": utcnow(), "status": "erfolgreich", "response": plain(answer)}
             except Exception as error:
                 files[name] = {"entity_id": entity, "status": "fehlgeschlagen", "response": None, "fehlerart": type(error).__name__}
                 problem(name, error)
+            finally:
+                completed_responses += 1
+                report("Wetter und Kalender lesen", 20 + 3 * completed_responses / max(1, len(calls)), completed_responses, len(calls), "Abrufe")
     calls = []
     weather = [s.entity_id for s in states if s.entity_id.startswith("weather.")]
     calendars = [s.entity_id for s in states if s.entity_id.startswith("calendar.")]
@@ -206,6 +221,7 @@ async def collect(hass):
                      {"start_date_time": today.isoformat(), "end_date_time": (today + timedelta(days=90)).isoformat()},
                      "diagnose/kalender/" + entity + ".json"))
     if calls:
+        report("Wetter und Kalender lesen", 20, 0, len(calls), "Abrufe")
         await asyncio.gather(*calls)
 
     # Bounded recorder history; metadata describes the selection and any omitted entities.
@@ -221,6 +237,7 @@ async def collect(hass):
     if len(eligible) > 100:
         problem("Verlauf", ValueError())
     if selection:
+        report("Verlauf lesen", 23, 0, unit="Verlaufzeilen")
         try:
             recorder = importlib.import_module("homeassistant.components.recorder")
             history = importlib.import_module("homeassistant.components.recorder.history")
@@ -247,6 +264,8 @@ async def collect(hass):
                     data.setdefault(key, [])[:0] = plain(selected)
                     left -= len(selected)
                 cursor = begin
+                covered = (end - cursor).total_seconds() / (48 * 3600)
+                report("Verlauf lesen", 23 + 6 * max(covered, (10000 - left) / 10000), 10000 - left, unit="Verlaufzeilen")
             incomplete = cursor > earliest or truncated
             if incomplete:
                 issues.append({"bereich": "Verlauf", "status": "teilweise", "grund": "48-Stunden-Verlauf wegen 10000-Zeilen-/40-Sekunden-Limit nur teilweise erfasst"})
@@ -269,4 +288,5 @@ async def collect(hass):
     issues.append({"bereich": "Ergänzende Diagnosen/Statistiken/externe Apps", "status": "nicht_ausgewertet",
                    "grund": "Keine pauschale Erfassung; Bedarf anhand Dashboard und Integrationen im Methodencheck klären"})
     files["runtime/snapshot_zeitfenster.json"] = {"start_utc": started, "ende_utc": utcnow(), "atomar": False}
+    report("HA-Daten gelesen", 30)
     return result

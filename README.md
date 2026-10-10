@@ -4,7 +4,7 @@ Lokale Home-Assistant-Integration für ein dokumentiertes Prüfarchiv aus Konfig
 Dashboards und Laufzeitdaten. Das ZIP wird auf dem HA-System erstellt und kann über
 eine authentifizierte Administrator-Sitzung heruntergeladen werden.
 
-Version **1.0.5** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
+Version **1.0.6** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
 Python-Abhängigkeiten für die Integration.
 
 ## Installation mit HACS
@@ -58,6 +58,26 @@ data:
 Die Aktion startet den Export im Hintergrund. Der Sensor zeigt Fortschritt, letzten
 Erfolg, Umfang und bereinigte Fehlerdetails. Ein vorheriges fertiges ZIP bleibt auch
 nach einem fehlgeschlagenen neuen Versuch erhalten.
+
+### Fortschrittsanzeige ab 1.0.6
+
+Die neue Karte zeigt Prozentbalken, aktuellen Arbeitsschritt, verarbeitete Dateien oder
+Abrufe, Laufzeit und die letzte Statusmeldung. Der Exportstatus wird während eines Laufs
+alle zwei Sekunden aktualisiert, auch wenn gerade auf eine HA-Antwort gewartet wird.
+Der Startknopf zeigt währenddessen **Export läuft …** und startet keinen zweiten Lauf.
+Wiederholte Aktionsaufrufe bleiben beim laufenden Export und melden keinen Fehler.
+
+Die Prozentanzeige beschreibt den Fortschritt nach gewichteten Arbeitsschritten und
+den Bearbeitungszählern innerhalb eines Schritts. Sie ist keine Restzeitvorhersage.
+Einzelne grosse Dateien können länger dauern; bei mehr als zwei Minuten ohne neue
+Fortschrittsmeldung weist die Karte darauf hin. Eine Statusmeldung bestätigt, dass
+HA seinen Status aktualisiert, und ist keine Garantie, dass der Dateiarbeiter Fortschritt macht.
+100 % wird erst nach erfolgreicher ZIP-Prüfung und Abschluss angezeigt.
+
+Für diese Anzeige die Integration über HACS aktualisieren und HA vollständig neu starten.
+Dann die bestehende Exportkarte einmal durch die vollständige neue
+`system_pruefexport_karte.yaml` ersetzen. HACS aktualisiert die Integrationsdateien;
+die im Dashboard gespeicherte Karten-YAML wird separat gepflegt.
 
 ## Optionale Dashboardkarte
 

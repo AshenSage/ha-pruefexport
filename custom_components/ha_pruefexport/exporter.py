@@ -273,7 +273,7 @@ class ExportFailure(ValueError):
 
 
 class Builder:
-    def __init__(self, root, private, snapshot, mode, cancel=None, limits=None):
+    def __init__(self, root, private, snapshot, mode, cancel=None, limits=None, progress=None):
         self.root = Path(root).resolve()
         self.private = Path(private)
         self.snapshot = snapshot
@@ -295,6 +295,12 @@ class Builder:
         self.archive_names = {}
         self.allocated_names = set(GENERATED_PATHS)
         self.renamed_paths = 0
+        from .progress import ProgressReporter
+        self.progress = ProgressReporter(progress)
+
+    def report(self, phase, percent, processed=None, total=None, unit=None):
+        self.phase = phase
+        self.progress(phase, percent, processed, total, unit)
 
     def check(self):
         if self.cancel.is_set():
@@ -380,6 +386,7 @@ class Builder:
             for name in files:
                 self.check()
                 count += 1
+                self.report("Dateien erfassen", 30, count, unit="Dateien geprüft")
                 if count > self.max_entries:
                     self.issue("Dateiinventar", "teilweise", "Inventarlimit erreicht; restliche Pfade nicht erfasst")
                     return
@@ -525,11 +532,15 @@ class Builder:
             self.issue("configuration.yaml", "fehlend", "Hauptkonfiguration nicht enthalten")
 
     def write_sources(self):
+        processed = 0
+        total = len(self.contents)
         for row in self.inventory:
             self.check()
             rel = row["pfad"]
             if rel not in self.contents:
                 continue
+            self.report("Quelldateien maskieren", 38 + 30 * processed / max(1, total), processed, total, "Dateien")
+            processed += 1
             source, ext, is_log = self.contents[rel]
             before = self.redactor.count
             try:
@@ -546,6 +557,7 @@ class Builder:
                            maskierungen=self.redactor.count - before)
             else:
                 row.update(entscheidung="ausgelassen", grund="Archivlimit erreicht")
+        self.report("Quelldateien maskieren", 68, processed, total, "Dateien")
 
     def build(self):
         self.check()
@@ -553,12 +565,13 @@ class Builder:
         if self.private.is_symlink():
             raise ValueError("Exportverzeichnis darf kein Symlink sein")
         os.chmod(self.private, 0o700)
-        self.phase = "Dateien und Zugangsdaten erfassen"
+        self.report("Dateien erfassen", 30, 0, unit="Dateien geprüft")
         self.read_secrets()
         self.redactor.learn(self.snapshot)
         self.inventory_files()
         if not any(is_log for _, _, is_log in self.contents.values()):
             self.issue("HA-Logs", "nicht_erfasst", "Keine unterstützte lokale HA-Logdatei vorhanden; vollständige Core-/Supervisor-Logs sind nicht enthalten")
+        self.report("Einbindungen prüfen", 35)
         self.find_dependencies()
         runtime_files = {}
         for name, value in self.snapshot.get("files", {}).items():
@@ -567,11 +580,12 @@ class Builder:
                 continue
             runtime_files[name] = value
             self.archive_name(name)
-        self.phase = "Quelldateien maskieren"
+        self.report("Quelldateien maskieren", 38, 0, len(self.contents), "Dateien")
         self.write_sources()
-        self.phase = "HA-Laufzeitdaten maskieren"
-        for name, value in runtime_files.items():
+        self.report("HA-Laufzeitdaten maskieren", 68, 0, len(runtime_files), "Datensätze")
+        for index, (name, value) in enumerate(runtime_files.items()):
             self.add(name, dump_json(self.redactor.object(self.archive_references(value))))
+            self.report("HA-Laufzeitdaten maskieren", 68 + 5 * (index + 1) / max(1, len(runtime_files)), index + 1, len(runtime_files), "Datensätze")
         referenced_secrets = [{"name": name, "vorhanden": name in self.secret_present} for name in sorted(self.redactor.secret_names)]
         if any(not row["vorhanden"] for row in referenced_secrets):
             self.issue("secrets", "teilweise", "Mindestens ein verwendeter Secret-Name fehlt")
@@ -592,19 +606,20 @@ class Builder:
         else:
             task = "# Prüfauftrag: gesamte HA-Prüfung\n\nPrüfe dieses Home-Assistant-Archiv systematisch anhand des aktuellen exportierten Stands.\nBeginne mit Bericht, Manifest und Inventar; erstelle eine Ansicht-/Karten-/Abhängigkeitsübersicht und einen Prüfplan.\nPrüfe Dashboard, Konfiguration, Templates, Automationen, Skripte und Erweiterungen auf Datenlücken,\nEinheiten, Zeitstempel, konfigurierte HA-Zeitzone/DST, Forecastbezug, Verfügbarkeit, Navigation und Aktionsparameter.\nSimuliere sinnvolle Fehlerfälle lokal; verwende ausschliesslich nachgewiesene Entitäten/Attribute.\nUnterscheide echte Nullwerte von fehlenden Daten, Quellenfrische von HA last_reported/last_changed.\nBeachte KONTEXT.md und dokumentiere Exportlücken. Bereits bearbeitete Karten auf aktuellem Stand prüfen.\nNutze offizielle Quellen passend zu den exportierten Versionen. Kein behaupteter Live-Test, keine Geräteaktionen/SMS.\nLiefere bei notwendigen Änderungen komplette herunterladbare Ersatz-YAML je Kartenblock mit Ersetzungsanweisung.\nKonfiguration/Automationen nur bei nachgewiesenem Bedarf ändern.\n"
         self.add("PRUEFAUFTRAG.md", task.encode())
-        self.phase = "Abschliessende Maskierung"
+        self.report("Abschliessende Maskierung", 73, 0, len(self.payload), "Dateien")
         # Sources can teach additional literals during rendering. Apply the completed
         # literal set to earlier output and generated metadata before hashing any bytes.
-        for name, data in list(self.payload.items()):
+        for index, (name, data) in enumerate(list(self.payload.items())):
             self.check()
             self.payload[name] = self.redactor.text(data.decode("utf-8")).encode("utf-8")
+            self.report("Abschliessende Maskierung", 73 + 8 * (index + 1) / max(1, len(self.payload)), index + 1, len(self.payload), "Dateien")
         if self.redactor.redacted_keys:
             self.issue("Maskierte Feldnamen", "teilweise",
                        "Mindestens ein Feldname enthält einen bekannten Zugangsdatenwert und wurde maskiert; Strukturzuordnung eingeschränkt")
         if self.renamed_paths:
             self.issue("Maskierte Dateinamen", "teilweise",
                        "Mindestens ein Archivpfad wurde maskiert; Inventar und Manifest verweisen auf die tatsächlich enthaltenen Namen")
-        self.phase = "Manifest und Exportbericht erstellen"
+        self.report("Manifest und Exportbericht erstellen", 81)
         # Metadata must remain possible even when source payload hits its budget.
         status = "teilweise" if self.issues else "vollstaendig"
         finished = utcnow()
@@ -632,13 +647,14 @@ class Builder:
         # and variable manifest data are checked. Fixed public schema labels and
         # computed hashes/numbers are not credential values, even when a generic
         # source field named "key" happens to contain the same public label.
-        self.phase = "Maskierungskontrolle"
-        for name, data in self.payload.items():
+        self.report("Maskierungskontrolle", 83, 0, len(self.payload), "Dateien")
+        for index, (name, data) in enumerate(self.payload.items()):
             self.check()
             if name not in GENERATED_PATHS and self.redactor.contains_known(name):
                 raise MaskingCheckError("Dateiname", name)
             if name != "manifest.json" and self.redactor.contains_known(data.decode("utf-8")):
                 raise MaskingCheckError("Archivinhalt", name)
+            self.report("Maskierungskontrolle", 83 + 6 * (index + 1) / max(1, len(self.payload)), index + 1, len(self.payload), "Dateien")
         parsed_manifest = json.loads(self.payload["manifest.json"])
         variable_metadata = {"start": parsed_manifest["started_utc"],
                              "issues": parsed_manifest["issues"],
@@ -659,20 +675,26 @@ class Builder:
         temporary = self.private / (filename + ".tmp")
         target = self.private / filename
         try:
-            self.phase = "ZIP schreiben"
+            self.report("ZIP schreiben", 89, 0, len(self.payload), "Dateien")
             with temporary.open("xb") as handle:
                 os.chmod(temporary, 0o600)
                 with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-                    for name, data in sorted(self.payload.items()):
+                    for index, (name, data) in enumerate(sorted(self.payload.items())):
                         self.check()
                         archive.writestr(name, data)
+                        self.report("ZIP schreiben", 89 + 7 * (index + 1) / max(1, len(self.payload)), index + 1, len(self.payload), "Dateien")
             with zipfile.ZipFile(temporary) as archive:
-                self.phase = "ZIP prüfen"
-                self.check()
-                if archive.testzip() is not None:
-                    raise ValueError("ZIP-Prüfung fehlgeschlagen")
+                self.report("ZIP prüfen", 96, 0, len(self.payload), "Dateien")
+                for index, entry in enumerate(archive.infolist()):
+                    # Reading each member to EOF verifies its CRC. Chunking also
+                    # allows cancellation during the verification of large files.
+                    with archive.open(entry) as member:
+                        while member.read(1024 * 1024):
+                            self.check()
+                    self.check()
+                    self.report("ZIP prüfen", 96 + 2 * (index + 1) / max(1, len(self.payload)), index + 1, len(self.payload), "Dateien")
             self.check()
-            self.phase = "ZIP freigeben"
+            self.report("ZIP freigeben", 98)
             os.replace(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
@@ -681,8 +703,8 @@ class Builder:
                 "issues": len(self.issues), "maskierungen": self.redactor.count, "mode": self.mode}
 
 
-def create_export(root, private, snapshot, mode, cancel=None):
-    builder = Builder(root, private, snapshot, mode, cancel)
+def create_export(root, private, snapshot, mode, cancel=None, progress=None):
+    builder = Builder(root, private, snapshot, mode, cancel, progress=progress)
     try:
         return builder.build()
     except ExportCancelled:
