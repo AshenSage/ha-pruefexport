@@ -1,5 +1,18 @@
 # Änderungen
 
+## Dashboardkarte · 11.10.2026
+
+- Kompaktes Layout mit flachen Aktionsknöpfen und mindestens 44 Pixel Bedienhöhe.
+- Fortschrittsbalken und Prozentwert nur während eines laufenden Exports; aktueller
+  Schritt, Bearbeitungszähler und Laufzeit ohne doppelte Statuszeilen.
+- Nach Abschluss kurze ZIP-Zusammenfassung mit Datum, Grösse und Dateianzahl.
+- Hinweise auf Erfassungsgrenzen bleiben sichtbar. Ausführliche Sensorattribute,
+  Fehlerdetails und Versionsnummer über Antippen der Statuskarte erreichbar.
+- Vorheriges Archiv auch nach einem Fehler klar als solches bezeichnet;
+  geschützter Download und gesperrter Start während eines Laufs bleiben erhalten.
+- Reine Kartenänderung, kompatibel mit Integration 1.0.8; Karten-YAML im Dashboard
+  einmal vollständig ersetzen. Kein Integrationsupdate oder HA-Neustart nötig.
+
 ## 1.0.8
 
 - Automatisch erzeugte Lovelace-Übersichten werden anhand der HA-Info als solche

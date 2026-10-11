@@ -66,10 +66,11 @@ nach einem fehlgeschlagenen neuen Versuch erhalten.
 
 ### Fortschrittsanzeige ab 1.0.6
 
-Die neue Karte zeigt Prozentbalken, aktuellen Arbeitsschritt, verarbeitete Dateien oder
-Abrufe, Laufzeit und die letzte Statusmeldung. Der Exportstatus wird während eines Laufs
+Die kompakte Karte zeigt während des Exports Prozentbalken, aktuellen Arbeitsschritt,
+verarbeitete Dateien oder Abrufe und Laufzeit. Nach Abschluss zeigt sie nur ZIP-Status,
+Datum, Grösse und Dateianzahl. Der Exportstatus wird während eines Laufs
 alle zwei Sekunden aktualisiert, auch wenn gerade auf eine HA-Antwort gewartet wird.
-Der Startknopf zeigt währenddessen **Export läuft …** und startet keinen zweiten Lauf.
+Der Startknopf zeigt währenddessen **Läuft …** und startet keinen zweiten Lauf.
 Wiederholte Aktionsaufrufe bleiben beim laufenden Export und melden keinen Fehler.
 
 Die Prozentanzeige beschreibt den Fortschritt nach gewichteten Arbeitsschritten und
@@ -87,12 +88,24 @@ die im Dashboard gespeicherte Karten-YAML wird separat gepflegt.
 ## Optionale Dashboardkarte
 
 `system_pruefexport_karte.yaml` als vollständige manuelle Karte einfügen.
-Benötigt **custom:button-card 6 oder neuer**. Die Karte startet den Export und holt für
+Die aktuelle [Karten-YAML auf GitHub](system_pruefexport_karte.yaml) ist vollständig und
+benötigt **custom:button-card 6 oder neuer** sowie HA Prüfexport ab 1.0.6.
+Die Karte startet den Export und holt für
 den Download einen kurz gültigen, signierten Pfad aus der angemeldeten HA-Sitzung.
 
 Die Beispielkarte formatiert Zeiten in der konfigurierten HA-Zeitzone und verwendet UTC,
 wenn die Einstellung nicht verfügbar ist. Die Export-Laufzeitdaten verwenden ebenfalls die tatsächliche HA-Zeitzone.
 Die Karten-YAML wird von HACS nicht automatisch ins Dashboard eingesetzt oder aktualisiert.
+
+Die kompakte Fassung vom 11.10.2026 funktioniert mit der bereits installierten Integration
+1.0.8. Dafür nur die vorhandene Prüfexportkarte im Dashboard vollständig durch die neue
+YAML ersetzen und speichern; kein Integrationsupdate oder HA-Neustart erforderlich.
+Der Prozentbalken verschwindet nach Abschluss. **Hinweise im Bericht** kennzeichnet ein
+erstelltes ZIP mit dokumentierten Erfassungsgrenzen. Ein vorhandenes älteres Archiv bleibt
+während eines Laufs oder nach einem Fehler als **Vorheriges ZIP** herunterladbar.
+Ein Tipp auf die obere Statuskarte öffnet die ausführlichen Sensorattribute mit
+Fehlerdetails, Laufzeit, Statuszeitstempeln und Exporter-Version.
+Die beiden flachen Aktionsknöpfe behalten mindestens 44 Pixel Höhe.
 
 ## Eigener Prüfkontext
 

@@ -35,7 +35,10 @@ Zurücksetzen beim nächsten Lauf, alte Meldungen und Abbruch ohne 100-Prozent-E
 Ein absichtlich beschädigter komprimierter ZIP-Inhalt wird bei der CRC-Prüfung abgewiesen;
 temporäre Dateien werden entfernt und kein ZIP veröffentlicht. Die tatsächlichen Karten-
 Templates werden mit laufendem Export, Prozentgrenzen, Dateizählern, Laufzeit,
-Statusuhrzeit, Escaping, länger ausbleibendem Fortschritt und vorherigem ZIP ausgeführt.
+Zeitbezug, Escaping, länger ausbleibendem Fortschritt und vorherigem ZIP ausgeführt.
+Die kompakte Kartenfassung prüft zusätzlich das Ausblenden des Balkens nach Abschluss,
+fehlende Fortschrittswerte, Statuswarnungen, kurze Archivmetadaten und den Zugang zu
+Fehlerdetails über die Sensoransicht.
 Diese Aussage bezieht sich auf die mitgelieferten API-Doubles, nicht auf einen vollständigen
 HA-Core-Lauf. HA-Authentifizierungsmiddleware und WebSocket-Signierung werden durch
 Doubles ersetzt. Die erste tatsächliche HACS-Installation muss separat in HA geprüft werden.
