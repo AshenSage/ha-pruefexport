@@ -42,3 +42,5 @@ Fehlerdetails über die Sensoransicht.
 Diese Aussage bezieht sich auf die mitgelieferten API-Doubles, nicht auf einen vollständigen
 HA-Core-Lauf. HA-Authentifizierungsmiddleware und WebSocket-Signierung werden durch
 Doubles ersetzt. Die erste tatsächliche HACS-Installation muss separat in HA geprüft werden.
+
+Version 1.0.9: 74 Offline-Tests und die Syntax-/Kartenprüfung bestehen. Neue Regressionen prüfen für sichere Parser-Positionen ohne Rohtext und gültige zitierte Doppelpunkte. Stabile Releases führen diese Prüfungen vor der Veröffentlichung aus.

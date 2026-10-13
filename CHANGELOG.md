@@ -1,5 +1,11 @@
 # Änderungen
 
+## 1.0.9 · 13.10.2026
+
+- Ungültiges YAML mit Parser-Fehlerart, Zeile und Spalte direkt im Inventar und Bericht dokumentieren; sensibler Rohtext bleibt ausgeschlossen.
+- Regressionen für geheimnishaltiges ungültiges YAML und gültige zitierte Doppelpunkte.
+- Stabile HACS-Releases werden vor Veröffentlichung automatisch geprüft.
+
 ## Dashboardkarte · 11.10.2026
 
 - Kompaktes Layout mit flachen Aktionsknöpfen und mindestens 44 Pixel Bedienhöhe.

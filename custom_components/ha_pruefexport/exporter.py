@@ -499,7 +499,18 @@ class Builder:
                         row.update(entscheidung="vorgemerkt", grund="", sha256_quelle=digest(data))
                         if is_log and s.st_size > len(data):
                             row["umfang"] = "Letzte 256 KiB; Beginn gegebenenfalls mitten in einer Zeile"
-                    except (OSError, ValueError, yaml.YAMLError, UnicodeError):
+                    except yaml.YAMLError as error:
+                        # Never export error text, source snippets or YAML values.
+                        row["fehlerart"] = type(error).__name__
+                        mark = getattr(error, "problem_mark", None)
+                        if mark is not None:
+                            row["yaml_zeile"] = mark.line + 1
+                            row["yaml_spalte"] = mark.column + 1
+                        position = (f" (Zeile {row['yaml_zeile']}, Spalte {row['yaml_spalte']})"
+                                    if mark is not None else "")
+                        row["grund"] = "Ungültiges YAML" + position + "; Inhalt ausgelassen"
+                        self.issue(rel, "teilweise", row["grund"])
+                    except (OSError, ValueError, UnicodeError):
                         row["grund"] = "Nicht lesbar oder nicht sicher auswertbar; Inhalt ausgelassen"
                         self.issue(rel, "teilweise", row["grund"])
                 except OSError:

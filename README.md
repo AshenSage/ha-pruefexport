@@ -4,7 +4,7 @@ Lokale Home-Assistant-Integration für ein dokumentiertes Prüfarchiv aus Konfig
 Dashboards und Laufzeitdaten. Das ZIP wird auf dem HA-System erstellt und kann über
 eine authentifizierte Administrator-Sitzung heruntergeladen werden.
 
-Version **1.0.8** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
+Version **1.0.9** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
 Python-Abhängigkeiten für die Integration.
 
 ## Installation mit HACS

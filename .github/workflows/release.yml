@@ -1,0 +1,63 @@
+name: Validate and publish stable HACS release
+on:
+  create:
+permissions:
+  contents: write
+concurrency:
+  group: pruefexport-release-${{ github.event.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements-test.txt
+      - name: Verify publication version
+        id: version
+        env:
+          PUBLICATION_REF: ${{ github.event.ref }}
+        run: |
+          python - <<'PY'
+          import ast, json, os, re
+          from pathlib import Path
+          component = Path('custom_components/ha_pruefexport')
+          version = json.loads((component / 'manifest.json').read_text())['version']
+          constants = ast.parse((component / 'const.py').read_text())
+          embedded = next(ast.literal_eval(node.value) for node in constants.body
+                          if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'VERSION' for t in node.targets))
+          tag = os.environ['PUBLICATION_REF'].removeprefix('release/')
+          assert re.fullmatch(r'\d+\.\d+\.\d+', version), 'Only stable versions are supported'
+          assert embedded == version and tag == 'v' + version
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('tag=' + tag + '\n')
+          PY
+      - run: python -m unittest discover -s tests -v
+      - run: python tests/validate.py
+      - name: Package integration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          component = Path('custom_components/ha_pruefexport')
+          with ZipFile('ha_pruefexport.zip', 'w', ZIP_DEFLATED) as archive:
+              for path in sorted(component.rglob('*')):
+                  if path.is_file() and '__pycache__' not in path.parts and path.suffix not in {'.pyc', '.pyo'}:
+                      archive.write(path, path.relative_to(component))
+          PY
+      - name: Publish complete stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLICATION_TAG: ${{ steps.version.outputs.tag }}
+          PUBLICATION_SHA: ${{ github.sha }}
+        run: |
+          gh release create "$PUBLICATION_TAG" ha_pruefexport.zip --draft --target "$PUBLICATION_SHA" --title "$PUBLICATION_TAG · YAML-Fehlerpositionen" --notes-file docs/RELEASE_NOTES.md
+          gh release edit "$PUBLICATION_TAG" --draft=false --prerelease=false --latest=true
