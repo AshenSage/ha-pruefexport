@@ -1,5 +1,15 @@
 # Änderungen
 
+## 1.1.1 · 15.10.2026
+
+- Sicherheitskorrektur: Tapo/TP-Link `credentials_hash` auch in Integrationseinträgen und `.storage/core.config_entries` maskieren. Der Feldinhalt kann rückwandelbare Base64-Zugangsdaten enthalten.
+- Varianten sensibler Feldnamen einschliesslich CamelCase, Grossbuchstaben und Hash-/Daten-Suffixen einheitlich in JSON, YAML, Skripten, Logs und URL-Parametern erkennen.
+- Geschützte Objekte und Listen vollständig maskieren; YAML-Verweise und `!secret`-Tags erhalten.
+- JSON-/Base64-Zugangsdaten und Basic-Auth begrenzt erkennen und darin enthaltene Klartextwerte für den globalen Abgleich lernen. Öffentliche kodierte JSON-Daten bleiben erhalten.
+- Wiederholte Maskierung darf Platzhalter nicht zu neuen Geheimnissen erklären. Ursprüngliche Zugangsdaten, die selbst einem Platzhalter entsprechen, bleiben geschützt.
+- Lange öffentliche Frontend-Zeichenfolgen ohne wiederholtes Scannen ihrer Namenssuffixe verarbeiten.
+- 14 zusätzliche Offline-Regressionen; bestehende Tests für Namenskollisionen und kurze PINs an die erweiterte Erkennung beziehungsweise zufällige Prüfsummen-Kollisionen angepasst.
+
 ## 1.1.0 · 15.10.2026
 
 - Kurze Alarm-PINs unter `code` in YAML-Aktionen, Live-Definitionen und gespeicherten Traces maskieren; öffentliche Codes und Templates erhalten.

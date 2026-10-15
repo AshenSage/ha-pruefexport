@@ -134,12 +134,13 @@ class ExportTests(unittest.TestCase):
 
     def test_colliding_redacted_keys_preserve_both_values(self):
         redactor = Redactor()
-        redactor.remember("long_secret_one")
-        redactor.remember("long_secret_two")
-        output = redactor.object({"long_secret_one": 1, "long_secret_two": 2})
+        # Use non-credential field names: secret_* fields are now sensitive too.
+        redactor.remember("long_literal_one")
+        redactor.remember("long_literal_two")
+        output = redactor.object({"long_literal_one": 1, "long_literal_two": 2})
         self.assertEqual(list(output.values()), [1, 2])
         self.assertEqual(len(output), 2)
-        self.assertNotIn("long_secret", str(output))
+        self.assertNotIn("long_literal", str(output))
 
     def test_final_masking_control_still_blocks_unredacted_output(self):
         self.write("secrets.yaml", "api: sensitive_literal_123\n")
@@ -427,7 +428,10 @@ class ExportTests(unittest.TestCase):
         self.write(".storage/input_text", '{"data": {"items": [{"id": "pin", "initial": "7788"}]}}')
         self.write("configuration.yaml", 'input_text:\n  pin:\n    initial: "7788"\ninput_number:\n  amount:\n    initial: 23\n')
         _, _, files = self.build()
-        self.assertNotIn(b"7788", b"\n".join(files.values()))
+        # A computed SHA256 or timestamp may coincidentally contain four digits.
+        for name in ("konfiguration/.storage/core.restore_state", "konfiguration/.storage/input_text",
+                     "konfiguration/configuration.yaml"):
+            self.assertNotIn(b"7788", files[name])
         self.assertIn(b"initial: 23", files["konfiguration/configuration.yaml"])
 
     def test_unquoted_shell_secrets_and_camelcase(self):

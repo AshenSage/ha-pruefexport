@@ -1,8 +1,10 @@
 """Bounded, read-only source collector. No HA imports; also usable in offline tests."""
 from __future__ import annotations
 
-import hashlib
+import base64
+import binascii
 import gzip
+import hashlib
 import json
 import math
 import os
@@ -47,10 +49,18 @@ SECRET_KEY = re.compile(r"(?i)^(?:.*(?:password|passwd|passphrase|private_key|cl
                         r"access_token|refresh_token|api_key|apikey|auth_token|encryption_key|"
                         r"webhook_id|alarm_code|pincode|pin_code|_token)|token|authorization|credentials|"
                         r"secret|pin|access_code|authsig|cookie|session_id|key)$")
+# Match complete name components, including encoded/hash/data suffixes. Never
+# assume that a field called a hash is one-way (python-kasa stores Base64 JSON).
+SECRET_PART = re.compile(r"(?:^|_)(?:credentials?|secrets?|password|passwd|passphrase|pass|pwd|"
+                         r"authorization|authentication|auth|authsig|cookies?|"
+                         r"session_id|session_key|private_key|client_secret|api_key|apikey|access_key|"
+                         r"access_code|alarm_code|pin_code|pincode|pin|passcode|tokens?|webhook_id|encryption_key)(?:_|$)", re.I)
+MAX_CREDENTIAL_PAYLOAD = 64 * 1024
 ARCHIVE_RE = re.compile(r"^ha_pruefexport_\d{8}_\d{6}_[a-f0-9]{8}\.zip$")
 OLD_EXPORT_DIR_RE = re.compile(r"^ha_pruefung_\d{8}_\d{6}$")
-ASSIGN = re.compile(r'''(?im)(["']?(?:password|passwd|passphrase|api_key|apikey|access_token|refresh_token|token|client_secret|authorization|alarm_code|pin|private_key)["']?\s*[:=]\s*)(["'])([^\r\n]*?)\2''')
-BARE_ASSIGN = re.compile(r"(?im)^(\s*(?:export\s+)?(?:password|passwd|api_key|apikey|access_token|refresh_token|token|client_secret|alarm_code|pin)\s*=\s*)([a-zA-Z0-9_./+~-]+)(\s*(?:#.*)?)$")
+ASSIGN = re.compile(r'''(?im)(?<![a-z0-9_-])(?P<prefix>["']?(?P<key>[a-z_][a-z0-9_-]*)["']?\s*[:=]\s*)(?P<quote>["'])(?P<value>(?:\\.|(?!(?P=quote))[^\\\r\n])*)(?P=quote)''')
+BARE_ASSIGN = re.compile(r"(?im)^(?P<prefix>\s*(?:export\s+)?(?P<key>[a-z_][a-z0-9_-]*)\s*=\s*)(?P<value>[^\s#\"']+)(?P<suffix>\s*(?:#.*)?)$")
+LOG_ASSIGN = re.compile(r"(?i)(?P<prefix>\b(?P<key>[a-z_][a-z0-9_-]*)\s*[:=]\s*)(?P<value>[^\s,;\"'{}\[\]]+)")
 
 
 def utcnow():
@@ -70,8 +80,47 @@ def storage_allowed(name):
 
 
 def is_secret_key(key):
-    normalized = re.sub(r"([a-z])([A-Z])", r"\1_\2", str(key)).replace("-", "_").replace(" ", "_")
-    return bool(SECRET_KEY.fullmatch(normalized))
+    normalized = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", str(key))
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", normalized)
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", normalized).strip("_")
+    return bool(SECRET_KEY.fullmatch(normalized) or SECRET_PART.search(normalized))
+
+
+def is_assignment_secret_key(key):
+    # In source code a plain "key" is routinely public object/method metadata.
+    # Structured JSON/YAML and URL parameters retain their existing key policy.
+    return str(key).lower() != "key" and is_secret_key(key)
+
+
+def credential_payload(value):
+    """Recognise bounded JSON/Base64 credential envelopes, never execute them."""
+    if not isinstance(value, str) or not 8 <= len(value) <= MAX_CREDENTIAL_PAYLOAD:
+        return None
+    candidate = unquote(value).strip()
+    basic = candidate.lower().startswith("basic ")
+    if basic:
+        candidate = candidate[6:].strip()
+    try:
+        if not candidate.startswith(("{", "[")):
+            if not re.fullmatch(r"[a-zA-Z0-9_+/=-]+", candidate):
+                return None
+            candidate = base64.b64decode(candidate + "=" * (-len(candidate) % 4),
+                                         altchars=b"-_", validate=True).decode("utf-8")
+        if basic:
+            username, password = candidate.split(":", 1)
+            return {"username": username, "password": password}
+        parsed = json.loads(candidate)
+        def sensitive(item, depth=0):
+            if depth > 8:
+                return False
+            if isinstance(item, dict):
+                return any(is_secret_key(key) or sensitive(val, depth + 1) for key, val in item.items())
+            if isinstance(item, list):
+                return any(sensitive(val, depth + 1) for val in item)
+            return False
+        return parsed if sensitive(parsed) else None
+    except (ValueError, UnicodeError, binascii.Error, RecursionError):
+        return None
 
 
 def alarm_context(value):
@@ -111,6 +160,26 @@ class Redactor:
             self.known.add(quote(value, safe=""))
             self.known.add(json.dumps(value, ensure_ascii=False)[1:-1])
 
+    def remember_sensitive(self, value, depth=0, original=False):
+        """Learn opaque credentials and their decoded leaves for duplicate masking."""
+        if depth > 8:
+            return
+        if not original and isinstance(value, str) and value in {MASK, "[MASK]"}:
+            return
+        if isinstance(value, dict):
+            for item in value.values():
+                self.remember_sensitive(item, depth + 1, original)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                self.remember_sensitive(item, depth + 1, original)
+        else:
+            self.remember(value)
+            if isinstance(value, str) and value.lower().startswith("basic "):
+                self.remember(value[6:].strip())
+            payload = credential_payload(value)
+            if payload is not None:
+                self.remember_sensitive(payload, depth + 1, original)
+
     @staticmethod
     def expression(value):
         return isinstance(value, str) and ("{{" in value or "{%" in value or value.strip().startswith("!secret "))
@@ -120,12 +189,15 @@ class Redactor:
             alarm = alarm or alarm_context(value)
             for key, item in value.items():
                 public_storage_key = key == "key" and metadata_key is not None and item == metadata_key
-                if (is_secret_key(key) or (alarm and key == "code")) and not public_storage_key and isinstance(item, (str, int)):
-                    self.remember(item)
-                self.learn(item, alarm=alarm)
+                if (is_secret_key(key) or (alarm and key == "code")) and not public_storage_key:
+                    self.remember_sensitive(item, original=True)
+                else:
+                    self.learn(item, alarm=alarm)
         elif isinstance(value, (list, tuple)):
             for item in value:
                 self.learn(item, alarm=alarm)
+        elif credential_payload(value) is not None:
+            self.remember_sensitive(value, original=True)
 
     def mask(self):
         self.count += 1
@@ -144,9 +216,18 @@ class Redactor:
         value = re.sub(r"-----BEGIN (?:[A-Z ]* )?PRIVATE KEY-----.*?-----END (?:[A-Z ]* )?PRIVATE KEY-----",
                        lambda m: self.mask(), value, flags=re.S)
         value = re.sub(r"(?i)(Bearer\s+)[a-z0-9._~+/=-]+", lambda m: m[1] + self.mask(), value)
-        value = re.sub(r"(?i)([a-z][a-z0-9+.-]*://)[^\s/<>\"']+:[^\s/@<>\"']+@", lambda m: m[1] + self.mask() + "@", value)
-        value = re.sub(r"(?i)([?&](?:token|access_token|accessToken|api_key|apikey|password|authSig|key)=)[^\s&#\"']+",
-                       lambda m: m[1] + self.mask(), value)
+        def basic_header(match):
+            self.remember_sensitive(match[0])
+            return match[1] + self.mask()
+        value = re.sub(r"(?i)(\bBasic\s+)[a-z0-9_+/=-]+", basic_header, value)
+        value = re.sub(r"(?i)(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*://)[^\s/<>\"']+:[^\s/@<>\"']+@", lambda m: m[1] + self.mask() + "@", value)
+        def query_parameter(match):
+            if not is_secret_key(unquote(match["key"])):
+                return match[0]
+            self.remember_sensitive(unquote(match["value"]))
+            return match["prefix"] + self.mask()
+        value = re.sub(r"(?i)(?P<prefix>[?&](?P<key>[^\s?&=#\"']+)=)(?P<value>[^\s&#\"']+)",
+                       query_parameter, value)
         for literal in sorted(self.known, key=len, reverse=True):
             if literal and literal in value:
                 self.count += value.count(literal)
@@ -174,7 +255,8 @@ class Redactor:
                     out[exported_key] = self.mask() if item is not None else None
                 elif key == "key" and metadata_key is not None and item == metadata_key:
                     out[exported_key] = self.text(item)
-                elif (is_secret_key(key) or (alarm and key == "code")) and item is not None and not isinstance(item, (dict, list)) and not self.expression(item):
+                elif (is_secret_key(key) or (alarm and key == "code")) and item is not None and not self.expression(item):
+                    self.remember_sensitive(item)
                     out[exported_key] = self.mask()
                 else:
                     out[exported_key] = self.object(item, path + "/" + key, alarm=alarm)
@@ -184,14 +266,13 @@ class Redactor:
         if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value) in self.short_known:
             return self.mask()
         if isinstance(value, str):
+            if credential_payload(value) is not None:
+                self.remember_sensitive(value)
+                return self.mask()
             if path.startswith("diagnose/system_log.json/"):
                 # Log messages are unstructured: learn and mask quoted assignments
                 # and plain key=value fields before the completed literal sweep.
                 value = self.source(value, ".txt")
-                def log_assignment(match):
-                    self.remember(match[2])
-                    return match[1] + self.mask()
-                value = re.sub(r"(?i)(\b(?:password|passwd|api_key|apikey|access_token|refresh_token|client_secret|alarm_code|pin)\s*[:=]\s*)([a-zA-Z0-9_./+~=-]+)", log_assignment, value)
             return self.text(value)
         if value is None or isinstance(value, (bool, int)):
             return value
@@ -223,16 +304,20 @@ class Redactor:
                     if isinstance(key_node, yaml.ScalarNode) and key_node.tag == "tag:yaml.org,2002:str" and key_node.value in CONNECTLIFE_BUTTON_KEYS and isinstance(fields.get("write"), yaml.MappingNode):
                         public_keys.add(id(key_node))
 
-        def walk(node, key=None, path="", alarm=False):
-            visit = (id(node), str(key), alarm)
+        def walk(node, key=None, path="", alarm=False, sensitive=False):
+            sensitive = sensitive or is_secret_key(key or "")
+            visit = (id(node), str(key), alarm, sensitive)
             if node is None or visit in visited:
                 return
             visited.add(visit)
             if isinstance(node, yaml.ScalarNode):
                 if node.tag == "!secret":
                     self.secret_names.add(node.value)
-                if id(node) not in public_keys and node.tag != "!secret" and (is_secret_key(key or "") or (alarm and key == "code")) and node.tag != "tag:yaml.org,2002:null" and not self.expression(node.value):
-                    self.remember(node.value)
+                if id(node) not in public_keys and node.tag != "!secret" and (sensitive or (alarm and key == "code")) and node.tag != "tag:yaml.org,2002:null" and not self.expression(node.value):
+                    self.remember_sensitive(node.value, original=True)
+                    changes[node.start_mark.index, node.end_mark.index] = json.dumps(self.mask())
+                elif node.tag != "!secret" and credential_payload(node.value) is not None:
+                    self.remember_sensitive(node.value)
                     changes[node.start_mark.index, node.end_mark.index] = json.dumps(self.mask())
                 elif node.tag != "!secret" and key == "initial" and "/input_text/" in path:
                     # Deliberately cautious: input_text may contain a PIN or private plate.
@@ -249,10 +334,10 @@ class Redactor:
                                                 if isinstance(k, yaml.ScalarNode) and isinstance(v, yaml.ScalarNode)})
                 for k, val in node.value:
                     walk(k, None, path)
-                    walk(val, k.value, path + "/" + str(k.value) + "/", alarm)
+                    walk(val, k.value, path + "/" + str(k.value) + "/", alarm, sensitive)
             elif isinstance(node, yaml.SequenceNode):
                 for val in node.value:
-                    walk(val, key, path, alarm)
+                    walk(val, key, path, alarm, sensitive)
         walk(root)
         for (start, end), replacement in sorted(changes.items(), reverse=True):
             source = source[:start] + replacement + source[end:]
@@ -272,17 +357,28 @@ class Redactor:
             return dump_json(self.object(raw, path, metadata_key)).decode()
         # Mask literal assignments, preserve code expressions such as token = template(...).
         def assignment(match):
-            if self.expression(match[3]):
+            if not is_assignment_secret_key(match["key"]) or self.expression(match["value"]):
                 return match[0]
-            self.remember(match[3])
-            return match[1] + match[2] + self.mask() + match[2]
+            self.remember_sensitive(match["value"])
+            return match["prefix"] + match["quote"] + self.mask() + match["quote"]
         source = ASSIGN.sub(assignment, source)
+        if extension in {".txt", ".log"}:
+            # Handle complete Basic headers/URLs before a bare assignment could
+            # consume only the word "Basic" and leave its encoded token behind.
+            source = self.text(source)
+            def log_assignment(match):
+                if (not is_assignment_secret_key(match["key"]) or self.expression(match["value"])
+                        or match["value"].startswith("$")):
+                    return match[0]
+                self.remember_sensitive(match["value"])
+                return match["prefix"] + self.mask()
+            source = LOG_ASSIGN.sub(log_assignment, source)
         if extension in {".sh", ".conf", ".ini", ".txt"}:
             def bare(match):
-                if match[2].startswith("$"):
+                if not is_assignment_secret_key(match["key"]) or match["value"].startswith("$"):
                     return match[0]
-                self.remember(match[2])
-                return match[1] + '"' + self.mask() + '"' + match[3]
+                self.remember_sensitive(match["value"])
+                return match["prefix"] + '"' + self.mask() + '"' + match["suffix"]
             source = BARE_ASSIGN.sub(bare, source)
         elif extension == ".py":
             source = re.sub(r"(?im)^(\s*(?:pin|alarm_code)\s*=\s*)\d+(\s*(?:#.*)?)$", lambda m: m[1] + '"' + self.mask() + '"' + m[2], source)
@@ -408,7 +504,7 @@ class Builder:
             if isinstance(raw, dict):
                 self.secret_present = set(map(str, raw))
                 for value in raw.values():
-                    self.redactor.remember(value)
+                    self.redactor.remember_sensitive(value, original=True)
         except (OSError, ValueError, yaml.YAMLError):
             self.issue("secrets", "teilweise", "Secrets lokal nicht lesbar; Inhalte bleiben ausgelassen")
 
@@ -515,10 +611,14 @@ class Builder:
                             self.redactor.learn(raw, storage_metadata_key(raw, rel))
                         else:
                             for match in ASSIGN.finditer(source):
-                                self.redactor.remember(match[3])
+                                if is_assignment_secret_key(match["key"]):
+                                    self.redactor.remember_sensitive(match["value"], original=True)
                             if ext in {".sh", ".conf", ".ini", ".txt"}:
                                 for match in BARE_ASSIGN.finditer(source):
-                                    self.redactor.remember(match[2])
+                                    if is_assignment_secret_key(match["key"]) and not match["value"].startswith("$"):
+                                        self.redactor.remember_sensitive(match["value"], original=True)
+                            if ext in {".txt", ".log"}:
+                                self.redactor.source(source, ext)
                         self.contents[rel] = (source, ext, is_log)
                         row.update(entscheidung="vorgemerkt", grund="", sha256_quelle=digest(data))
                         if is_log and s.st_size > len(data):

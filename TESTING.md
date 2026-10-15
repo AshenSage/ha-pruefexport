@@ -1,5 +1,13 @@
 # Lokale Prüfung
 
+Version 1.1.1: **98 Offline-Tests** und die Syntax-/Kartenprüfung bestehen.
+14 neue Regressionen prüfen erfundene Tapo-Zugangsdaten in echten ZIPs mit
+Storage-/Laufzeitkopien, ähnliche Feldnamen, geschützte Objekte und Listen,
+JSON-/Base64-/URL-kodierte Daten, Basic-Auth, Skripte, Logs, URL-Parameter,
+YAML-Verweise und Tags, wiederholte Maskierung, öffentliche Daten, Dekodiergrenzen
+und lange Frontend-Zeichenfolgen. Es werden keine echten Zugangsdaten als Fixtures
+verwendet. Die abschliessende Maskierungskontrolle bleibt aktiv.
+
 Version 1.1.0: **84 Offline-Tests** und die Syntax-/Kartenprüfung bestehen.
 Neue Regressionen prüfen kurze und numerische Alarm-PINs in echten ZIPs,
 YAML-Aliase, erhaltene öffentliche Codes/Templates/Zeitstempel, faire und deterministische

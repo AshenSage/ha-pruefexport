@@ -4,7 +4,7 @@ Lokale Home-Assistant-Integration für ein dokumentiertes Prüfarchiv aus Konfig
 Dashboards und Laufzeitdaten. Das ZIP wird auf dem HA-System erstellt und kann über
 eine authentifizierte Administrator-Sitzung heruntergeladen werden.
 
-Version **1.1.0** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
+Version **1.1.1** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
 Python-Abhängigkeiten für die Integration.
 
 ## Installation mit HACS
@@ -178,6 +178,15 @@ Der Download verlangt eine authentifizierte HA-Administratoridentität.
 Auth-Dateien, Inhalte von `secrets.yaml`, Datenbanken, Backups, private Schlüssel und
 Medien werden ausgeschlossen. Bekannte Zugangsdatenfelder und lokal erkannte Secret-Werte
 werden maskiert; `input_text`-Zustandsinhalte werden vorsorglich maskiert.
+Ab 1.1.1 gilt das auch für Varianten wie `credentials_hash`, `credentialsHash`,
+`password_hash`, `pwd`, Tokenlisten und verschachtelte Zugangsdatenobjekte.
+Der Schutz greift in gespeicherter Konfiguration, Laufzeitdaten, YAML, Skripten,
+Logmeldungen und sensiblen URL-Parametern. JSON-/Base64-Zugangsdaten und Basic-Auth
+werden begrenzt erkannt; dabei gelernte Klartextwerte werden auch an anderen Stellen
+maskiert. Ein als „Hash“ bezeichnetes Feld wird nicht als sicher vorausgesetzt.
+Beliebige Verschlüsselungen und unbekannte individuell benannte Geheimnisse können
+nicht vollständig erkannt werden. Bestehende ZIPs werden durch ein Update nicht bereinigt:
+Nach dem Update und HA-Neustart einen neuen Export erstellen.
 Ab 1.1.0 werden auch kurze `code`-Werte in erkannten Alarmaktionen/-Traces maskiert.
 Bekannte kurze Zugangsdaten mit 4–7 Zeichen werden zusätzlich als ganze YAML-/JSON-
 Skalarwerte abgeglichen, auch bei numerischen Secret-Werten. Teilzeichenfolgen in
