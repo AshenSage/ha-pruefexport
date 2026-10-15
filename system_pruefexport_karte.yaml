@@ -28,7 +28,7 @@ cards:
     return ({
       bereit:'Bereit für einen Export',
       vollstaendig:a.has_archive === true ? 'ZIP bereit' : 'Kein ZIP verfügbar',
-      teilweise:a.has_archive === true ? 'ZIP bereit · Hinweise im Bericht' : 'Kein ZIP verfügbar',
+      teilweise:a.has_archive === true ? 'ZIP bereit · Erfassungslücken im Bericht' : 'Kein ZIP verfügbar',
       fehler:'Export fehlgeschlagen · Details antippen'
     })[s];
     ]]]

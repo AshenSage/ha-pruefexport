@@ -16,6 +16,55 @@ from .exporter import utcnow
 from .progress import ProgressReporter
 
 
+ENTITY_REF = re.compile(r"\b[a-z_]+\.[a-zA-Z0-9_]+\b")
+PRIVATE_HISTORY_DOMAINS = ("input_text.", "camera.", "person.", "device_tracker.")
+
+
+def entity_references(value):
+    """Find literal entity IDs, including literals inside templates; never render them."""
+    if isinstance(value, Mapping):
+        return set().union(*(entity_references(v) for v in value.values())) if value else set()
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return set().union(*(entity_references(v) for v in value)) if value else set()
+    return set(ENTITY_REF.findall(value)) if isinstance(value, str) else set()
+
+
+def select_history(states, files, limit=100):
+    """Share the bounded selection between automations, scripts and dashboards."""
+    available = {s.entity_id for s in states}
+    origins, buckets = {}, {"automation": set(), "script": set(), "dashboard": set()}
+    for name, value in files.items():
+        if name.startswith("dashboards/") and name != "dashboards/ressourcen.json":
+            groups = [("dashboard", name, entity_references(value))]
+        elif name in {"runtime/definitionen_automation.json", "runtime/definitionen_script.json"}:
+            category = "automation" if name.endswith("_automation.json") else "script"
+            groups = [(category, row["entity_id"], entity_references(row)) for row in value]
+        else:
+            continue
+        for category, origin, refs in groups:
+            for entity in refs & available:
+                origins.setdefault(entity, set()).add(origin)
+                if not entity.startswith(PRIVATE_HISTORY_DOMAINS) and entity != "sensor.ha_pruefexport":
+                    buckets[category].add(entity)
+    # Round-robin prevents a large dashboard or automation set from using all slots.
+    queues = {key: iter(sorted(values)) for key, values in buckets.items()}
+    selected = []
+    while queues and len(selected) < limit:
+        for key, queue in list(queues.items()):
+            entity = next(queue, None)
+            if entity is None:
+                del queues[key]
+            elif entity not in selected:
+                selected.append(entity)
+            if len(selected) == limit:
+                break
+    eligible = set().union(*buckets.values())
+    return {"entity_ids": selected, "weitere_nicht_erfasst": sorted(eligible - set(selected)),
+            "ausgeschlossen": sorted(set(origins) - eligible), "stunden": 48, "entitaetenlimit": limit,
+            "herkunft": {entity: sorted(origins[entity]) for entity in sorted(origins)},
+            "hinweis": "Abwechselnd Automationen, Skripte und Dashboards; nur vorhandene, ausdrücklich referenzierte Entitäten. HA-Referenzen berücksichtigen aufgelöste Blueprints. Dynamische Templates, Geräte-/Bereichsziele und nicht geladene Definitionen können zusätzliche Entitäten verwenden. Keine Personen-/Tracker-/Kamera-/input_text-Verläufe; kein eigener Exportstatus."}
+
+
 def plain(value):
     if value is None or isinstance(value, (str, bool, int, float)):
         return value
@@ -101,8 +150,8 @@ async def collect(hass, progress=None):
     started = utcnow()
     report = ProgressReporter(progress)
     report("HA-Zustände lesen", 2)
-    files, issues = {}, []
-    result = {"started": started, "files": files, "issues": issues, "local_references": []}
+    files, issues, notes = {}, [], []
+    result = {"started": started, "files": files, "issues": issues, "notes": notes, "local_references": []}
 
     def problem(name, error, status="teilweise"):
         # Never put exception messages in exports: providers may include a secret URL.
@@ -153,6 +202,27 @@ async def collect(hass, progress=None):
         {"entry_id": entry.entry_id, "domain": entry.domain, "title": entry.title,
          "source": entry.source, "state": plain(entry.state), "disabled_by": plain(entry.disabled_by),
          "version": entry.version, "data": plain(entry.data), "options": plain(entry.options)} for entry in entries]
+
+    # These are the same read-only entity properties used by HA's config and
+    # reference queries (Core 2026.10); no automation/script is executed.
+    for domain in ("automation", "script"):
+        definitions = []
+        component = hass.data.get(domain)
+        if component is None:
+            if any(s.entity_id.startswith(domain + ".") for s in states):
+                problem("Definitionen " + domain, LookupError())
+        else:
+            try:
+                for entity in component.entities:
+                    try:
+                        definitions.append({"entity_id": entity.entity_id,
+                            "config": plain(entity.raw_config),
+                            "referenzierte_entitaeten": sorted(entity.referenced_entities)})
+                    except Exception as error:
+                        problem("Definition " + str(entity.entity_id), error)
+            except Exception as error:
+                problem("Definitionen " + domain, error)
+        files["runtime/definitionen_" + domain + ".json"] = definitions
 
     for index, (name, attribute) in enumerate([("entity", "entities"), ("device", "devices"), ("area", "areas"),
                             ("floor", "floors"), ("label", "labels")]):
@@ -256,7 +326,7 @@ async def collect(hass, progress=None):
             elif value.startswith("/hacsfiles/"):
                 result["local_references"].append("www/community/" + unquote(urlsplit(value).path[len("/hacsfiles/"):]))
     for name, value in list(files.items()):
-        if name.startswith(("dashboards/", "inventar/integrationen")):
+        if name.startswith(("dashboards/", "inventar/integrationen", "runtime/definitionen_")):
             references(value)
     result["local_references"] = sorted(set(result["local_references"]))
 
@@ -298,17 +368,11 @@ async def collect(hass, progress=None):
         await asyncio.gather(*calls)
 
     # Bounded recorder history; metadata describes the selection and any omitted entities.
-    referenced = set()
-    for name, data in files.items():
-        if name.startswith("dashboards/"):
-            import json
-            referenced.update(re.findall(r"\b[a-z_]+\.[a-zA-Z0-9_]+\b", json.dumps(data)))
-    eligible = sorted(s.entity_id for s in states if s.entity_id in referenced and not s.entity_id.startswith(("input_text.", "camera.", "person.", "device_tracker.")))
-    selection = eligible[:100]
-    files["diagnose/verlauf_auswahl.json"] = {"entity_ids": selection, "weitere_nicht_erfasst": eligible[100:], "stunden": 48,
-                                               "hinweis": "Nur im Dashboard ausdrücklich genannte Entitäten; dynamische Filter können zusätzliche Entitäten verwenden"}
-    if len(eligible) > 100:
-        problem("Verlauf", ValueError())
+    selection_info = select_history(states, files)
+    files["diagnose/verlauf_auswahl.json"] = selection_info
+    selection = selection_info["entity_ids"]
+    if selection_info["weitere_nicht_erfasst"]:
+        issues.append({"bereich": "Verlaufsauswahl", "status": "teilweise", "grund": "Limit 100 Entitäten erreicht; weitere Referenzen stehen in diagnose/verlauf_auswahl.json"})
     if selection:
         report("Verlauf lesen", 23, 0, unit="Verlaufzeilen")
         try:
@@ -328,7 +392,7 @@ async def collect(hass, progress=None):
         "externe_apps": "Nur unter /config vorhandene Quellen; keine Supervisor-/App-/Controller-Konfiguration ausserhalb dieses Bereichs",
         "system_logs": "HA-Fehlerspeicher bis 100 zusammengefasste Einträge; vorhandene lokale HA-Logdateien jeweils letzte 256 KiB; kein vollständiges Core-/Supervisor-Log",
         "quellen_cache": "Vorhandene JSON-/Textquellen unter /config; keine beliebigen unbekannten Dienste"}
-    issues.append({"bereich": "Ergänzende Diagnosen/Statistiken/externe Apps", "status": "nicht_ausgewertet",
+    notes.append({"bereich": "Ergänzende Diagnosen/Statistiken/externe Apps", "status": "hinweis",
                    "grund": "Keine pauschale Erfassung; Bedarf anhand Dashboard und Integrationen im Gesamtprüfauftrag klären"})
     files["runtime/snapshot_zeitfenster.json"] = {"start_utc": started, "ende_utc": utcnow(), "atomar": False}
     report("HA-Daten gelesen", 30)

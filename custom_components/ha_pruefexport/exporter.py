@@ -74,6 +74,13 @@ def is_secret_key(key):
     return bool(SECRET_KEY.fullmatch(normalized))
 
 
+def alarm_context(value):
+    """Recognise alarm actions/states without treating every public 'code' as a PIN."""
+    return any(isinstance(value.get(key), str) and
+               (value[key] == "alarm_control_panel" or value[key].startswith("alarm_control_panel."))
+               for key in ("action", "service", "domain", "entity_id"))
+
+
 def storage_metadata_key(value, path):
     """Only a verified HA storage envelope's own key is public format metadata."""
     if (str(path).startswith(".storage/") and isinstance(value, dict)
@@ -87,11 +94,18 @@ def storage_metadata_key(value, path):
 class Redactor:
     def __init__(self):
         self.known = set()
+        self.short_known = set()
         self.count = 0
         self.secret_names = set()
         self.redacted_keys = 0
 
     def remember(self, value):
+        # Short credentials are matched as whole scalar values, never substrings
+        # in timestamps, hashes or entity IDs. Numeric secrets are common PINs.
+        if type(value) is int:
+            value = str(value)
+        if isinstance(value, str) and 4 <= len(value) < 8 and not self.expression(value):
+            self.short_known.add(value)
         if isinstance(value, str) and len(value) >= 8 and not self.expression(value):
             self.known.add(value)
             self.known.add(quote(value, safe=""))
@@ -101,16 +115,17 @@ class Redactor:
     def expression(value):
         return isinstance(value, str) and ("{{" in value or "{%" in value or value.strip().startswith("!secret "))
 
-    def learn(self, value, metadata_key=None):
+    def learn(self, value, metadata_key=None, alarm=False):
         if isinstance(value, dict):
+            alarm = alarm or alarm_context(value)
             for key, item in value.items():
                 public_storage_key = key == "key" and metadata_key is not None and item == metadata_key
-                if is_secret_key(key) and not public_storage_key and isinstance(item, (str, int)):
+                if (is_secret_key(key) or (alarm and key == "code")) and not public_storage_key and isinstance(item, (str, int)):
                     self.remember(item)
-                self.learn(item)
+                self.learn(item, alarm=alarm)
         elif isinstance(value, (list, tuple)):
             for item in value:
-                self.learn(item)
+                self.learn(item, alarm=alarm)
 
     def mask(self):
         self.count += 1
@@ -138,8 +153,9 @@ class Redactor:
                 value = value.replace(literal, self.marker)
         return value
 
-    def object(self, value, path="", metadata_key=None):
+    def object(self, value, path="", metadata_key=None, alarm=False):
         if isinstance(value, dict):
+            alarm = alarm or alarm_context(value)
             out = {}
             for key, item in value.items():
                 key = str(key)
@@ -158,13 +174,15 @@ class Redactor:
                     out[exported_key] = self.mask() if item is not None else None
                 elif key == "key" and metadata_key is not None and item == metadata_key:
                     out[exported_key] = self.text(item)
-                elif is_secret_key(key) and item is not None and not isinstance(item, (dict, list)) and not self.expression(item):
+                elif (is_secret_key(key) or (alarm and key == "code")) and item is not None and not isinstance(item, (dict, list)) and not self.expression(item):
                     out[exported_key] = self.mask()
                 else:
-                    out[exported_key] = self.object(item, path + "/" + key)
+                    out[exported_key] = self.object(item, path + "/" + key, alarm=alarm)
             return out
         if isinstance(value, (list, tuple, set)):
-            return [self.object(v, path) for v in value]
+            return [self.object(v, path, alarm=alarm) for v in value]
+        if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value) in self.short_known:
+            return self.mask()
         if isinstance(value, str):
             if path.startswith("diagnose/system_log.json/"):
                 # Log messages are unstructured: learn and mask quoted assignments
@@ -187,7 +205,7 @@ class Redactor:
 
     def yaml(self, source, source_path=""):
         root = yaml.compose(source)
-        changes = []
+        changes = {}
         visited = set()
         public_keys = set()
         # ConnectLife ships declarative button identifiers named "key". This
@@ -205,33 +223,38 @@ class Redactor:
                     if isinstance(key_node, yaml.ScalarNode) and key_node.tag == "tag:yaml.org,2002:str" and key_node.value in CONNECTLIFE_BUTTON_KEYS and isinstance(fields.get("write"), yaml.MappingNode):
                         public_keys.add(id(key_node))
 
-        def walk(node, key=None, path=""):
-            if node is None or id(node) in visited:
+        def walk(node, key=None, path="", alarm=False):
+            visit = (id(node), str(key), alarm)
+            if node is None or visit in visited:
                 return
-            visited.add(id(node))
+            visited.add(visit)
             if isinstance(node, yaml.ScalarNode):
                 if node.tag == "!secret":
                     self.secret_names.add(node.value)
-                if id(node) not in public_keys and node.tag != "!secret" and is_secret_key(key or "") and node.tag != "tag:yaml.org,2002:null" and not self.expression(node.value):
+                if id(node) not in public_keys and node.tag != "!secret" and (is_secret_key(key or "") or (alarm and key == "code")) and node.tag != "tag:yaml.org,2002:null" and not self.expression(node.value):
                     self.remember(node.value)
-                    changes.append((node.start_mark.index, node.end_mark.index, json.dumps(self.mask())))
+                    changes[node.start_mark.index, node.end_mark.index] = json.dumps(self.mask())
                 elif node.tag != "!secret" and key == "initial" and "/input_text/" in path:
                     # Deliberately cautious: input_text may contain a PIN or private plate.
-                    changes.append((node.start_mark.index, node.end_mark.index, json.dumps(self.mask())))
+                    changes[node.start_mark.index, node.end_mark.index] = json.dumps(self.mask())
+                elif node.tag != "!secret" and key is not None and node.value in self.short_known:
+                    changes[node.start_mark.index, node.end_mark.index] = json.dumps(self.mask())
                 else:
                     redacted = self.text(node.value)
                     if redacted != node.value:
                         tag = node.tag + " " if node.tag.startswith("!") else ""
-                        changes.append((node.start_mark.index, node.end_mark.index, tag + json.dumps(redacted, ensure_ascii=False)))
+                        changes[node.start_mark.index, node.end_mark.index] = tag + json.dumps(redacted, ensure_ascii=False)
             elif isinstance(node, yaml.MappingNode):
+                alarm = alarm or alarm_context({k.value: v.value for k, v in node.value
+                                                if isinstance(k, yaml.ScalarNode) and isinstance(v, yaml.ScalarNode)})
                 for k, val in node.value:
                     walk(k, None, path)
-                    walk(val, k.value, path + "/" + str(k.value) + "/")
+                    walk(val, k.value, path + "/" + str(k.value) + "/", alarm)
             elif isinstance(node, yaml.SequenceNode):
                 for val in node.value:
-                    walk(val, key, path)
+                    walk(val, key, path, alarm)
         walk(root)
-        for start, end, replacement in sorted(changes, reverse=True):
+        for (start, end), replacement in sorted(changes.items(), reverse=True):
             source = source[:start] + replacement + source[end:]
         source = self.text(source)
         # Replacing an anchor or another non-scalar part may be unsafe. Omit that
@@ -312,6 +335,7 @@ class Builder:
         self.redactor = Redactor()
         self.inventory = []
         self.issues = list(snapshot.get("issues", []))
+        self.notes = list(snapshot.get("notes", []))
         self.dependencies = []
         self.payload = {}
         self.total = 0
@@ -616,7 +640,7 @@ class Builder:
             detail = "Keine unterstützte lokale HA-Logdatei vorhanden; vollständige Core-/Supervisor-Logs sind nicht enthalten"
             if "diagnose/system_log.json" in self.snapshot.get("files", {}):
                 detail += "; der begrenzte HA-Fehlerspeicher ist separat enthalten"
-            self.issue("HA-Logs", "nicht_erfasst", detail)
+            self.notes.append({"bereich": "HA-Logs", "status": "hinweis", "grund": detail})
         self.report("Einbindungen prüfen", 35)
         self.find_dependencies()
         runtime_files = {}
@@ -658,6 +682,7 @@ Der Auftrag ist modellagnostisch. Beachte KONTEXT.md und den tatsächlich erfass
 
 Beginne mit EXPORTBERICHT.md, manifest.json, inventar/dateiliste.txt,
 inventar/dateien.json und inventar/abhaengigkeiten.json.
+Unterscheide echte Erfassungslücken (`issues`) von erwarteten Umfangshinweisen (`notes`).
 Vergleiche Archivinhalt, SHA256/Grössen, Dateiliste, Einbindungen, Live-Dashboards,
 Laufzeitdaten und registrierte Integrationen. Suche nach ausgelassenen prüfrelevanten
 Daten, unbekannten Speicherformaten, Maskierungsfehlern und falschen
@@ -677,6 +702,8 @@ Prüfe Konfiguration, Templates, Automationen, Skripte und Erweiterungen auf Feh
 Datenlücken, Einheiten, Zeitstempel, konfigurierte HA-Zeitzone/DST, Forecastbezug,
 Verfügbarkeit, Navigation und Aktionsparameter. Bereits bearbeitete Karten auf ihrem
 aktuellen Stand prüfen. Verwende ausschliesslich nachgewiesene Entitäten und Attribute.
+Beachte runtime/definitionen_automation.json, runtime/definitionen_script.json und
+diagnose/verlauf_auswahl.json mit Herkunft, Auswahlgrenzen und Datenschutzausschlüssen.
 Unterscheide echte Nullwerte von fehlenden Daten und Quellenfrische von HA
 last_reported/last_changed. Simuliere sinnvolle Fehlerfälle lokal.
 Nutze offizielle Quellen passend zu den exportierten Versionen.
@@ -718,16 +745,20 @@ Behaupte keinen Live-Test ohne tatsächlichen Zugriff; keine Geräteaktionen ode
                   "Keine Kopie von Auth-Dateien, Secrets-Inhalten, Recorder-Datenbank, Medien oder Backups.",
                   "Ausgeschlossene Verzeichnis-Unterbäume sind im Inventar markiert; deren Inhalt wurde nicht einzeln aufgelistet.",
                   "Externe Apps/Controller-Konfigurationen ausserhalb /config werden nicht eingesammelt.",
-                  "", "## Einschränkungen"]
+                  "", "## Erfassungslücken"]
         report.extend("- " + item["bereich"] + " · " + item["status"] + ": " + item["grund"] for item in self.issues)
         if not self.issues:
             report.append("Keine erkannten Erfassungslücken im vorgesehenen Umfang; keine Garantie für unbekannte externe Abhängigkeiten.")
+        report += ["", "## Hinweise zum vorgesehenen Umfang"]
+        report.extend("- " + item["bereich"] + ": " + item["grund"] for item in self.notes)
+        if not self.notes:
+            report.append("Keine zusätzlichen Umfangshinweise.")
         report += ["", "Maskierungen: " + str(self.redactor.count), "", "Manifest-Prüfsummen beziehen sich auf die tatsächlich exportierten, bereinigten Bytes.", "Das Manifest enthält keine Prüfsumme seiner eigenen Datei."]
         self.payload["EXPORTBERICHT.md"] = self.redactor.text("\n".join(report) + "\n").encode()
         manifest = {"format_version": FORMAT_VERSION, "exporter_version": VERSION, "status": status, "pruefmodus": self.mode,
                     "started_utc": self.redactor.object(self.snapshot.get("started")), "finished_utc": finished,
                     "zeitbasis_archivname": "UTC", "limits": {"file_bytes": self.max_file, "payload_bytes": self.max_total, "inventory_files": self.max_entries},
-                    "issues": self.redactor.object(self.issues), "maskierungen": self.redactor.count,
+                    "issues": self.redactor.object(self.issues), "notes": self.redactor.object(self.notes), "maskierungen": self.redactor.count,
                     "files": [{"path": name, "bytes": len(data), "sha256": digest(data)} for name, data in sorted(self.payload.items())]}
         self.payload["manifest.json"] = dump_json(manifest)
         # Independent final scan. All source bytes, source-derived archive names
@@ -744,7 +775,7 @@ Behaupte keinen Live-Test ohne tatsächlichen Zugriff; keine Geräteaktionen ode
             self.report("Maskierungskontrolle", 83 + 6 * (index + 1) / max(1, len(self.payload)), index + 1, len(self.payload), "Dateien")
         parsed_manifest = json.loads(self.payload["manifest.json"])
         variable_metadata = {"start": parsed_manifest["started_utc"],
-                             "issues": parsed_manifest["issues"],
+                             "issues": parsed_manifest["issues"], "notes": parsed_manifest["notes"],
                              "paths": [row["path"] for row in parsed_manifest["files"]
                                        if row["path"] not in GENERATED_PATHS]}
         if self.redactor.contains_known(dump_json(variable_metadata).decode("utf-8")):
@@ -787,7 +818,7 @@ Behaupte keinen Live-Test ohne tatsächlichen Zugriff; keine Geräteaktionen ode
             temporary.unlink(missing_ok=True)
         return {"filename": filename, "bytes": target.stat().st_size, "finished": finished,
                 "status": status, "files": len(self.payload), "sources": sum(r.get("entscheidung") == "enthalten" for r in self.inventory),
-                "issues": len(self.issues), "maskierungen": self.redactor.count, "mode": self.mode}
+                "issues": len(self.issues), "notes": len(self.notes), "maskierungen": self.redactor.count, "mode": self.mode}
 
 
 def create_export(root, private, snapshot, mode="gesamt", cancel=None, progress=None):

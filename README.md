@@ -4,7 +4,7 @@ Lokale Home-Assistant-Integration für ein dokumentiertes Prüfarchiv aus Konfig
 Dashboards und Laufzeitdaten. Das ZIP wird auf dem HA-System erstellt und kann über
 eine authentifizierte Administrator-Sitzung heruntergeladen werden.
 
-Version **1.0.9** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
+Version **1.1.0** · Home Assistant **2026.10.0 oder neuer** · keine zusätzlichen
 Python-Abhängigkeiten für die Integration.
 
 ## Installation mit HACS
@@ -100,8 +100,10 @@ Die Karten-YAML wird von HACS nicht automatisch ins Dashboard eingesetzt oder ak
 Die kompakte Fassung vom 11.10.2026 funktioniert mit der bereits installierten Integration
 1.0.8. Dafür nur die vorhandene Prüfexportkarte im Dashboard vollständig durch die neue
 YAML ersetzen und speichern; kein Integrationsupdate oder HA-Neustart erforderlich.
-Der Prozentbalken verschwindet nach Abschluss. **Hinweise im Bericht** kennzeichnet ein
-erstelltes ZIP mit dokumentierten Erfassungsgrenzen. Ein vorhandenes älteres Archiv bleibt
+Der Prozentbalken verschwindet nach Abschluss. Ab 1.1.0 kennzeichnet **Erfassungslücken im Bericht**
+ein ZIP mit tatsächlichen Erfassungsproblemen. Erwartete Umfangsgrenzen stehen separat als Hinweise
+im Bericht und lösen allein keinen Warnstatus aus. Die neue Formulierung erfordert einmalig die
+aktuelle Karten-YAML; die bisherige Karte bleibt bedienbar. Ein vorhandenes älteres Archiv bleibt
 während eines Laufs oder nach einem Fehler als **Vorheriges ZIP** herunterladbar.
 Ein Tipp auf die obere Statuskarte öffnet die ausführlichen Sensorattribute mit
 Fehlerdetails, Laufzeit, Statuszeitstempeln und Exporter-Version.
@@ -128,10 +130,11 @@ Erfasst werden unter anderem:
 - aktive UI- und YAML-Dashboards sowie Frontendressourcen;
 - automatisch erzeugte Übersichten mit Herkunftshinweis statt einer erfundenen statischen Kartenliste;
 - aktuelle Zustände samt Zeitstempeln, Registries, Integrationseinträge und Dienste;
+- geladene Automations-/Skriptdefinitionen samt von HA aufgelösten Entitätsreferenzen;
 - bis zu 100 zusammengefasste Warnungen/Fehler aus dem HA-Fehlerspeicher, vorhandene
   lokale HA-Logdateien als begrenzte Ausschnitte und auf Datenträger gespeicherte Traces;
 - Wetterprognosen und Kalenderantworten über lesende HA-Aktionen;
-- ein begrenzter Recorder-Verlauf für ausdrücklich im Dashboard genannte Entitäten.
+- ein begrenzter Recorder-Verlauf für Entitäten aus Automationen, Skripten und Dashboards.
 
 Nicht unterstützte Formate, fehlende Referenzen, Abruffehler und erreichte Limits
 stehen als Lücken im Exportbericht. Unbekannte `.storage`-Formate werden inventarisiert,
@@ -144,13 +147,24 @@ gleichnamige funktionale Unterordner eigener Integrationen mitgesammelt werden.
 
 Grenzen: 12 MiB je Textdatei, 80 MiB Quelldatenbudget, 100000 inventarisierte Dateien;
 Logausschnitte bis 256 KiB je unterstützter Datei. Der Recorder-Abruf versucht 48 Stunden
-für bis zu 100 Entitäten und ist auf 10000 Zeilen begrenzt. Vollständige Core- und
+für bis zu 100 Entitäten und ist auf 10000 Zeilen begrenzt. Die Plätze werden abwechselnd
+an Automationen, Skripte und Dashboards vergeben. Herkunft, aus Datenschutzgründen
+ausgeschlossene Entitäten und wegen des Limits nicht ausgewählte Referenzen stehen in
+`diagnose/verlauf_auswahl.json`. Dynamische Templates, Geräte-/Bereichsziele und nicht
+geladene Definitionen können zusätzliche, nicht erfasste Entitäten verwenden.
+Vollständige Core- und
 Supervisor-Logs werden nicht automatisch abgerufen.
 Das Zeilenbudget wird gleichmässig auf ausgewählte Entitäten verteilt. Häufige
 Messwerte können dadurch ältere Tür-/Alarmereignisse anderer Entitäten nicht verdrängen.
 Je Entität werden die neuesten Änderungen bis zum Budget erfasst; gekürzte Entitäten,
 Zeilenzähler und Abfragezeitfenster sind dokumentiert. Ein Abfragezeitfenster von
 48 Stunden bedeutet bei Kürzungen keinen lückenlosen Verlauf jeder Entität.
+
+Ab 1.1.0 trennt der Bericht **Erfassungslücken** (Abruffehler, unbekannte Quellen,
+erreichte Limits) von **Hinweisen zum vorgesehenen Umfang** (beispielsweise keine
+pauschalen Anbieterdiagnosen, Statistiken oder externen App-Konfigurationen und keine
+lokale HA-Logdatei). Nur Erfassungslücken erzeugen `teilweise`. Beide Listen stehen
+auch getrennt als `issues` und `notes` im Manifest; Sensorattribute nennen deren Anzahl.
 
 Ein Exportstatus „vollständig“ beschreibt nur den dokumentierten Erfassungsumfang,
 keine fehlerfreie HA-Konfiguration. „Umfang prüfen“ verweist auf Einschränkungen im Bericht.
@@ -164,6 +178,11 @@ Der Download verlangt eine authentifizierte HA-Administratoridentität.
 Auth-Dateien, Inhalte von `secrets.yaml`, Datenbanken, Backups, private Schlüssel und
 Medien werden ausgeschlossen. Bekannte Zugangsdatenfelder und lokal erkannte Secret-Werte
 werden maskiert; `input_text`-Zustandsinhalte werden vorsorglich maskiert.
+Ab 1.1.0 werden auch kurze `code`-Werte in erkannten Alarmaktionen/-Traces maskiert.
+Bekannte kurze Zugangsdaten mit 4–7 Zeichen werden zusätzlich als ganze YAML-/JSON-
+Skalarwerte abgeglichen, auch bei numerischen Secret-Werten. Teilzeichenfolgen in
+Zeitstempeln, Entitätsnamen oder Prüfsummen werden dafür nicht pauschal ersetzt.
+Öffentliche `code`-Felder ohne Alarmbezug und Code-Templates bleiben auswertbar.
 Nachgewiesene öffentliche ConnectLife-Buttonkennungen in den ausgelieferten
 Datenwörterbüchern bleiben erhalten. Die Ausnahme gilt nur für bekannte Kennungen
 im passenden Dateipfad und in einer Buttondefinition mit Schreibbeschreibung;

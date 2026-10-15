@@ -45,7 +45,7 @@ assert.doesNotMatch(details({state:'bereit',attributes:{}}), /1970|0 MB/);
 const timedEntity={state:'teilweise',attributes:{has_archive:true,archive_finished:'2026-01-15T06:00:00+00:00',archive_bytes:1048576,archive_sources:10,archive_status:'teilweise'}};
 assert.equal(progress({...timedEntity,attributes:{...timedEntity.attributes,progress_pct:100}}), '');
 assert.equal(percent({...timedEntity,attributes:{...timedEntity.attributes,progress_pct:100}}), '');
-assert.match(label(timedEntity), /ZIP bereit.*Hinweise im Bericht/);
+assert.match(label(timedEntity), /ZIP bereit.*Erfassungslücken im Bericht/);
 assert.match(details(timedEntity), /1 MB · 10 Dateien/);
 assert.match(details(timedEntity), /06:00/);
 assert.match(details(timedEntity,{config:{time_zone:'America/New_York'}}), /01:00/);

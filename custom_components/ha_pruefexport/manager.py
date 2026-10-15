@@ -98,6 +98,7 @@ class ExportManager:
                 "archive_finished": archive.get("finished"), "archive_status": archive.get("status"),
                 "archive_files": archive.get("files"), "archive_sources": archive.get("sources"),
                 "archive_issues": archive.get("issues"), "archive_maskierungen": archive.get("maskierungen"),
+                "archive_notes": archive.get("notes"),
                 "pruefmodus": archive.get("mode"),
                 "download_path": DOWNLOAD_PREFIX + archive["filename"] if self.archive_available else None}
 

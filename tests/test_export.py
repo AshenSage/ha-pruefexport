@@ -307,10 +307,12 @@ class ExportTests(unittest.TestCase):
         self.assertTrue((self.root / old / "configuration.yaml").is_file())
         self.assertNotIn("nested/file.txt", str(rows))
 
-    def test_absent_local_logs_are_an_explicit_gap(self):
+    def test_absent_local_logs_are_an_explicit_scope_note(self):
         (self.root / "home-assistant.log").unlink()
         _, result, files = self.build()
-        self.assertEqual(result["status"], "teilweise")
+        self.assertEqual(result["status"], "vollstaendig")
+        self.assertEqual(result["issues"], 0)
+        self.assertEqual(result["notes"], 1)
         self.assertIn("HA-Logs", files["EXPORTBERICHT.md"].decode())
         self.assertIn("vollständige Core-/Supervisor-Logs", files["EXPORTBERICHT.md"].decode())
 

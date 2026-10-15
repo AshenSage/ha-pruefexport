@@ -1,5 +1,15 @@
 # Lokale Prüfung
 
+Version 1.1.0: **84 Offline-Tests** und die Syntax-/Kartenprüfung bestehen.
+Neue Regressionen prüfen kurze und numerische Alarm-PINs in echten ZIPs,
+YAML-Aliase, erhaltene öffentliche Codes/Templates/Zeitstempel, faire und deterministische
+Verlaufsauswahl aus drei Quellen samt Herkunft und Datenschutzausschlüssen,
+gelesene HA-Definitionen/Blueprint-Referenzen ohne Geräteaktionen sowie die Trennung
+von Umfangshinweisen und echten Erfassungslücken. Eine fehlende lokale Logdatei ist
+jetzt ein dokumentierter Umfangshinweis. Die APIs für `raw_config` und
+`referenced_entities` wurden mit dem offiziellen HA-Core-Code 2026.10.0 abgeglichen;
+die Tests verwenden weiterhin API-Doubles und ersetzen keinen Live-Test in HA.
+
 Benötigt Python 3.12 oder neuer und Node.js für die Kartenprüfung.
 
 ```sh

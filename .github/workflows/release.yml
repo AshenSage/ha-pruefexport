@@ -59,5 +59,5 @@ jobs:
           PUBLICATION_TAG: ${{ steps.version.outputs.tag }}
           PUBLICATION_SHA: ${{ github.sha }}
         run: |
-          gh release create "$PUBLICATION_TAG" ha_pruefexport.zip --draft --target "$PUBLICATION_SHA" --title "$PUBLICATION_TAG · YAML-Fehlerpositionen" --notes-file docs/RELEASE_NOTES.md
+          gh release create "$PUBLICATION_TAG" ha_pruefexport.zip --draft --target "$PUBLICATION_SHA" --title "HA Prüfexport $PUBLICATION_TAG" --notes-file docs/RELEASE_NOTES.md
           gh release edit "$PUBLICATION_TAG" --draft=false --prerelease=false --latest=true

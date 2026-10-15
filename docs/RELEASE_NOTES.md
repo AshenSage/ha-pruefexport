@@ -1,7 +1,9 @@
-# HA Prüfexport 1.0.9
+# HA Prüfexport 1.1.0
 
-Ungültige YAML-Dateien bleiben aus dem Prüfarchiv ausgeschlossen. Das Dateiinventar und der Exportbericht nennen jetzt die Parser-Fehlerart sowie Zeile und Spalte, damit sich die Ursache auch ohne vollständige HA-Logs finden lässt. Rohdatei, Parser-Snippets und möglicherweise enthaltene Zugangsdaten werden weiterhin nicht exportiert.
+- Kurze Alarm-PINs in YAML-Aktionen, Laufzeitdefinitionen und gespeicherten Traces werden maskiert. Kurze/numerische bekannte Secrets werden als ganze YAML-/JSON-Werte abgeglichen. Öffentliche Codes und Templates bleiben erhalten.
+- Die Verlaufsauswahl berücksichtigt jetzt Automationen und Skripte einschliesslich aufgelöster HA-Blueprint-Referenzen sowie Dashboards. Die begrenzten Plätze werden abwechselnd vergeben; Herkunft und ausgelassene Entitäten sind dokumentiert.
+- Erwartete Umfangshinweise stehen getrennt von echten Erfassungslücken im Bericht und Manifest. Nur echte Lücken führen zu `teilweise`; der Sensor nennt beide Anzahlen.
 
-Normales stabiles HACS-Release. Nach dem Update Home Assistant neu starten. Bestehende Integration und Dashboardkarte bleiben verwendbar.
+Nach dem HACS-Update Home Assistant vollständig neu starten und einen neuen Export erstellen. Vorhandene ZIPs bleiben unverändert. Für die präzisere Beschriftung „Erfassungslücken im Bericht“ die Karten-YAML einmal vollständig ersetzen; die bisherige Karte bleibt verwendbar.
 
-Geprüft: vollständige Offline-Tests, Python-/JSON-/YAML-Prüfung und die tatsächlichen JavaScript-Templates der Karte. Regressionen prüfen eine ungültige YAML-Datei mit synthetischem Geheimnis sowie eine gültige Beschreibung mit zitiertem Doppelpunkt. Die Prüfungen benötigen keine Verbindung zum eigenen HA.
+Geprüft: 84 Offline-Tests, Python-/JSON-/YAML-Prüfung und die tatsächlichen JavaScript-Templates der Karte. Kein Live-Test auf einem HA-Server.

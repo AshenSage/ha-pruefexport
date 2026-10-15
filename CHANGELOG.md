@@ -1,5 +1,15 @@
 # Änderungen
 
+## 1.1.0 · 15.10.2026
+
+- Kurze Alarm-PINs unter `code` in YAML-Aktionen, Live-Definitionen und gespeicherten Traces maskieren; öffentliche Codes und Templates erhalten.
+- Numerische und kurze bekannte Secret-Werte als ganze YAML-/JSON-Skalare abgleichen; Zeitstempel und Entitätsnamen bleiben lesbar.
+- Geladene Automations-/Skriptdefinitionen und HA-Entitätsreferenzen einschliesslich aufgelöster Blueprint-Verweise ergänzen.
+- Die 100 Recorder-Plätze abwechselnd auf Automationen, Skripte und Dashboards verteilen; Herkunft, ausgeschlossene und nicht ausgewählte Entitäten dokumentieren. Die Grenzen von 48 Stunden, 10000 Zeilen und 40 Sekunden bleiben bestehen.
+- Erwartete Umfangshinweise von tatsächlichen Erfassungslücken trennen; nur letztere erzeugen den Status `teilweise`. Manifest und Sensor nennen Hinweise separat.
+- Kartenbeschriftung auf „Erfassungslücken im Bericht“ präzisieren; ältere Karten bleiben funktionsfähig.
+- Zehn zusätzliche Offline-Regressionen für PINs, YAML-Aliase, faire Verlaufsauswahl und Statusunterscheidung.
+
 ## 1.0.9 · 13.10.2026
 
 - Ungültiges YAML mit Parser-Fehlerart, Zeile und Spalte direkt im Inventar und Bericht dokumentieren; sensibler Rohtext bleibt ausgeschlossen.
